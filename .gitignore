@@ -107,3 +107,7 @@ dist
 build-pre/
 
 .env
+.env.dev
+.npmrc
+.nvmrc
+.env.dev
