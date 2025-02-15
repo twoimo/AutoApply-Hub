@@ -7,7 +7,8 @@ import sequelize from "sequelize";
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import TestControlService from "../utils/TestControlService";
+import ScraperControlService from "../utils/ScraperControlService";
+import puppeteer from "puppeteer";
 
 /**
  * @name 메인 서비스 노출 클래스
@@ -27,7 +28,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   /**
    * 테스트 컨트롤 서비스
    */
-  private testControlService = new TestControlService([]);
+  private ScraperControlService = new ScraperControlService([]);
 
   /**
    * @name 테스트
@@ -35,4 +36,13 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @path /test
    */
   public async test({}: {}) {}
+
+  /**
+   * @name 시작 함수
+   * @httpMethod get
+   * @path /run
+   */
+  public async run({}: {}) {
+    await this.ScraperControlService.openSaramin({});
+  }
 }
