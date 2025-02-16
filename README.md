@@ -104,10 +104,6 @@ npm start
   Password: 0000
   ```
 
-### API 문서
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
 ## 프로젝트 구조
 ```
 wheel-micro-service-boilerplate-study/
