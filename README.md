@@ -85,9 +85,49 @@ export default class ScraperControlService extends ScraperServiceABC {
 }
 ```
 
+3. **채용공고 스크래핑 구현**
+```typescript
+export default class ScraperControlService extends ScraperServiceABC {
+    public async openSaramin({}: {}) {
+        // 브라우저 설정
+        const browser = await puppeteer.launch({
+            headless: false,
+            defaultViewport: null,
+            args: [
+                "--disable-web-security",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--allow-running-insecure-content",
+            ],
+        });
+
+        const page = await browser.newPage();
+        
+        // URL 파라미터 분석 및 데이터 수집
+        // - page: 페이지 번호 (2~20)
+        // - loc_mcd: 지역 코드 (101000,102000 = 서울,경기)
+        // - cat_kewd: 직종 카테고리 (2248,82,83,107,108,109 = IT/개발 직군)
+        // - page_count: 한 페이지당 표시 개수 (50)
+        // - sort: 정렬 방식 (RL = 관련도순)
+        for (let i = 2; i <= 20; i++) {
+            const searchURL = `https://www.saramin.co.kr/zf_user/jobs/list/domestic?page=${i}&loc_mcd=101000%2C102000&cat_kewd=2248%2C82%2C83%2C107%2C108%2C109&page_count=50&sort=RL`;
+            await page.goto(searchURL);
+            
+            // 채용공고 링크 추출 및 처리
+            const jobLinks = await page.evaluate(() => {
+                // DOM 스크래핑 로직
+            });
+        }
+    }
+}
+```
+
 이러한 구현을 통해:
 - MainServiceCommunicateService에서 캡슐화를 통한 서비스 은닉
 - ScraperServiceABC 추상 클래스 상속을 통한 스크래핑 기능 추상화
+- Puppeteer를 활용한 헤드리스 브라우저 제어
+- URL 파라미터 기반 동적 검색 조건 처리
+- 페이지네이션을 통한 대량 채용정보 수집 (2~20페이지)
+- 지역 및 직종 필터링을 통한 타겟 채용정보 스크래핑
 - 실제 프로덕션 코드에서 OOP 원칙 적용
 
 ## 🔍 기술 연구

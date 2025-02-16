@@ -36,7 +36,12 @@ export default class ScraperControlService extends ScraperServiceABC {
 
     // 페이지 순회 (2~20 페이지)
     for (let i = 2; i <= 20; i++) {
-      // 사람인 채용정보 목록 페이지로 이동
+      // 사람인 채용정보 목록 페이지로 이동 (URL 파라미터 분석 및 데이터 수집)
+      // - page: 페이지 번호 (2~20)
+      // - loc_mcd: 지역 코드 (101000,102000 = 서울,경기)
+      // - cat_kewd: 직종 카테고리 (2248,82,83,107,108,109 = IT/개발 직군)
+      // - page_count: 한 페이지당 표시 개수 (50)
+      // - sort: 정렬 방식 (RL = 관련도순)
       await page.goto(
         `https://www.saramin.co.kr/zf_user/jobs/list/domestic?page=${i}&loc_mcd=101000%2C102000&cat_kewd=2248%2C82%2C83%2C107%2C108%2C109&search_optional_item=n&search_done=y&panel_count=y&preview=y&isAjaxRequest=0&page_count=50&sort=RL&type=domestic&is_param=1&isSearchResultEmpty=1&isSectionHome=0&searchParamCount=2#searchTitle`
       );
