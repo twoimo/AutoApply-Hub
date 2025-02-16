@@ -1,119 +1,134 @@
-# AutoApply-Hub
+# 3주차 스터디 내용 정리
 
-## 프로젝트 개요
-구인구직 사이트(사람인 등)를 자동으로 순회하며 설정된 조건에 맞는 회사에 이력서를 자동으로 제출하는 오픈소스 프로그램
+## 📚 목차
+- [서비스 구조](#서비스-구조)
+- [연구 노트](#연구-노트)
+- [기술 연구](#기술-연구)
+- [개발자 생산성](#개발자-생산성)
 
-### 주요 기능
-- 구인구직 사이트 자동 크롤링
-- 맞춤형 회사 필터링
-- 이력서 자동 제출
-- 지원 이력 관리
-- 실시간 진행 상황 모니터링
+## 🔧 서비스 구조
 
-## 기술 스택
+### 개발자 서비스
+| 서비스                          | 설명                               |
+| ------------------------------- | ---------------------------------- |
+| `MainServiceCommunicateService` | 주요 통신 및 데이터 처리 담당      |
+| `ScraperControlService`         | 웹 스크래핑 작업 제어 및 오류 처리 |
 
-### 백엔드
-- Node.js & TypeScript
-- FastAPI (Python 3.9)
-- MySQL & Sequelize ORM
-- OpenAI GPT API
+## 📖 연구 노트
 
-### 프론트엔드
-- React & Next.js
-- TypeScript
+### OOP vs PP 비교 연구
+객체지향 프로그래밍과 절차지향 프로그래밍의 특징을 비교 분석했습니다.
 
-### 개발 도구
-- Docker - 컨테이너 관리
-- DBeaver - 데이터베이스 관리
-- dbdiagram.io - ERD 설계
-- Postman - API 테스트
+#### 📌 OOP의 핵심 특징
+1. **캡슐화 (Encapsulation)**
+   ```
+   데이터와 메서드를 하나의 단위로 묶어 정보를 은닉
+   ```
 
-### Node.js 주요 라이브러리
-- @qillie/wheel-common & wheel-micro-service
-- Puppeteer & Cheerio - 웹 크롤링
-- Sharp & Jimp - 이미지 처리
-- Sequelize-typescript - ORM
-- ts-node-dev - 개발 서버
+2. **상속 (Inheritance)**
+   ```
+   기존 클래스 특성을 재사용하여 코드 재사용성 향상
+   ```
 
-## 개발 환경 설정
+3. **다형성 (Polymorphism)**
+   ```
+   동일 인터페이스로 다양한 구현 가능
+   ```
 
-### 1. 필수 도구 설치
-- Docker Desktop
-- Node.js & npm
-- DBeaver Community Edition
-- Postman
-- OpenAI API 키
+4. **추상화 (Abstraction)**
+   ```
+   복잡한 시스템을 단순화하여 핵심 개념만 표현
+   ```
 
-### 2. 데이터베이스 설정
-```bash
-docker run --name mysql-container -e MYSQL_ROOT_PASSWORD=0000 -d -p 3306:3306 mysql:latest
+5. **객체간 통신**
+   ```
+   느슨한 결합을 통한 유연한 시스템 구조 구현
+   ```
+
+#### 실습 내용
+프로젝트의 두 핵심 서비스에서 OOP 원칙을 실제 적용했습니다.
+
+1. **MainServiceCommunicateService의 캡슐화 적용**
+```typescript
+// src/services/developer/MainServiceCommunicateService.ts
+export default class MainServiceCommunicateService extends MicroServiceABC {
+    // 캡슐화: private 접근 제어자를 통한 내부 서비스 은닉
+    private apiCallService = new ApiCallService([]);
+    private dataConverterService = new DataConverterService([]);
+    private ScraperControlService = new ScraperControlService([]);
+
+    // public 메서드를 통한 기능 제공
+    public async run({}: {}) {
+        await this.ScraperControlService.openSaramin({});
+    }
+}
 ```
 
-### 3. 프로젝트 설정
-```bash
-# 레포지토리 클론
-git clone [repository-url]
-cd wheel-micro-service-boilerplate-study
-
-# 환경 설정 파일 생성
-touch .npmrc .nvmrc .env
-
-# 의존성 설치
-npm install
-
-# 환경변수 설정
-cp .env.example .env
+2. **ScraperControlService의 추상화 적용**
+```typescript
+// src/services/utils/ScraperControlService.ts
+export default class ScraperControlService extends ScraperServiceABC {
+    // 추상 클래스를 상속받아 스크래핑 기능 구현
+    public async openSaramin({}: {}) {
+        // 브라우저 설정 추상화
+        const browser = await puppeteer.launch({
+            headless: false,
+            defaultViewport: null,
+            args: [
+                "--disable-web-security",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--allow-running-insecure-content",
+            ],
+        });
+        // ...스크래핑 로직 구현
+    }
+}
 ```
 
-### 환경 설정 파일
+이러한 구현을 통해:
+- MainServiceCommunicateService에서 캡슐화를 통한 서비스 은닉
+- ScraperServiceABC 추상 클래스 상속을 통한 스크래핑 기능 추상화
+- 실제 프로덕션 코드에서 OOP 원칙 적용
 
-#### 1. .env 설정
-```bash
-NODE_ENV="development"
-# NODE_ENV="production"
-```
+## 🔍 기술 연구
 
-#### 2. .npmrc 설정
-GitHub 패키지 레지스트리에서 @qillie 스코프의 패키지를 설치하기 위한 인증 토큰이 필요합니다.
-- GitHub Personal Access Token이 필요합니다
-- 패키지 읽기 권한이 부여된 토큰을 발급 받아야 합니다
+### 웹 스크래핑 기술
+| 방식              | 장점                  | 단점                  |
+| ----------------- | --------------------- | --------------------- |
+| BeautifulSoup     | 정적 콘텐츠 처리 우수 | 동적 콘텐츠 처리 제한 |
+| JavaScript 엔진 ✅ | 동적 콘텐츠 처리 가능 | 리소스 사용량 높음    |
+| 네트워크 분석     | API 직접 호출 가능    | 인증 처리 복잡        |
 
-#### 3. .nvmrc 설정
-프로젝트에서 사용하는 Node.js 버전을 지정하는 파일입니다.
-- 팀원들과 동일한 Node.js 버전을 사용하기 위해 필요합니다
-- Node.js 버전 관리자(nvm)에서 사용됩니다
+### 렌더링 방식
+| 방식 | 특징                        | 적용                 |
+| ---- | --------------------------- | -------------------- |
+| CSR  | - 동적 렌더링<br>- SPA 적합 | JavaScript 엔진 필수 |
+| SSR  | - 서버 렌더링<br>- SEO 유리 | HTML 파싱 가능       |
 
-### 4. 애플리케이션 실행
-```bash
-# 개발 모드
-npm run dev
+## 🚀 개발자 생산성
 
-# 프로덕션 모드
-npm start
-```
+### 프레임워크 이점
+- ⚡ 신속한 개발: 추상 클래스 활용
+- 🔄 코드 재사용: 공통 유틸리티 제공
+- 📈 품질 향상: 표준화된 패턴 적용
 
-## 개발 가이드
+`@qillie/wheel-micro-service` 프레임워크는 마이크로서비스 개발에서 개발자의 생산성과 역량을 크게 향상시킵니다:
 
-### 데이터베이스
-- ERD 설계: https://dbdiagram.io
-- DBeaver 연결 정보:
-  ```
-  Host: localhost:3306
-  Database: wheel_service
-  Username: root
-  Password: 0000
-  ```
+### 🚀 향상된 개발 효율성
+- `ScraperServiceABC`와 같은 내장 추상 클래스로 신속한 서비스 개발 기반 제공
+- `sleep`과 같은 공통 유틸리티로 기본 기능 재작성 불필요
+- 표준화된 패턴으로 상용구 코드 감소 및 개발 시간 단축
 
-## 프로젝트 구조
-```
-wheel-micro-service-boilerplate-study/
-├── src/
-│   ├── api/
-│   ├── models/
-│   ├── services/
-│   └── index.ts
-├── database/
-│   └── erd.dbml
-├── tests/
-└── README.md
-```
+### 💪 개발자 역량 강화
+- 일관된 아키텍처 패턴으로 비즈니스 로직에 집중 가능
+- 추상 기본 클래스로 모범 사례 자동 준수
+- 내장된 데이터 동기화 및 연결 관리 기능으로 복잡성 감소
+
+### 🎯 중요성
+마이크로서비스 분야에서 개발자 생산성이 중요한 이유:
+- 신속한 서비스 배포 및 반복
+- 일관된 코드 품질 유지
+- 새로운 기능의 시장 출시 시간 단축
+- 유지보수 가능하고 확장 가능한 코드베이스 보장
+
+프레임워크의 구조화된 접근 방식은 높은 코드 품질 표준을 유지하면서 개발 주기를 가속화하는 데 매우 중요한 역할을 합니다.
