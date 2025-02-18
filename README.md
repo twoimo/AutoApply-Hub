@@ -121,6 +121,20 @@ export default class ScraperControlService extends ScraperServiceABC {
 }
 ```
 
+4. **API 실행 테스트**
+서비스 구현 후 Postman을 사용하여 동작을 테스트했습니다:
+
+- **요청 정보**
+  - Method: GET
+  - URL: `localhost:6080/api/developer/main_service_communicate/run`
+  - Headers: None
+  - Body: None
+
+- **테스트 결과**
+  - 요청 시 스크래핑 서비스가 실행되어 헤드리스 브라우저가 구동
+  - 사람인 채용정보 페이지를 순차적으로 탐색
+  - 설정된 필터(지역: 서울/경기, 직종: IT/개발)에 따라 채용정보 수집
+
 이러한 구현을 통해:
 - MainServiceCommunicateService에서 캡슐화를 통한 서비스 은닉
 - ScraperServiceABC 추상 클래스 상속을 통한 스크래핑 기능 추상화
