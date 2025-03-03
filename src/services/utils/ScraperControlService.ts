@@ -469,7 +469,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     
     // 경력 조건별 통계
     const jobTypeCounts: Record<string, number> = {};
-    jobs.forEach(job => {sssss
+    jobs.forEach(job => {
       const type = job.jobType || '미지정';
       jobTypeCounts[type] = (jobTypeCounts[type] || 0) + 1;
     });
