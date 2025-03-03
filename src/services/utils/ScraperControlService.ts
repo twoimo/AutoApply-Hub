@@ -1,61 +1,75 @@
 // 필요한 외부 라이브러리들을 가져옵니다.
-// import 구문: 다른 파일이나 라이브러리의 기능을 현재 파일에서 사용하기 위해 가져오는 문법입니다.
-import moment from "moment";                                 // 날짜와 시간을 쉽게 다루는 라이브러리
-import { ScraperServiceABC, sleep } from "@qillie/wheel-micro-service"; // 기본 스크래퍼 서비스와 대기 기능
-import _ from "lodash";                                      // 유틸리티 함수 모음 라이브러리
-import sequelize from "sequelize";                           // 데이터베이스 작업을 위한 ORM 라이브러리
-import axios from "axios";                                   // HTTP 요청을 보내기 위한 라이브러리
-import puppeteer from "puppeteer";                           // 웹 브라우저 자동화 라이브러리
-import { Browser, Page } from "puppeteer";                   // 타입스크립트용 puppeteer 타입 정의
+// import 구문: 다른 파일이나 라이브러리의 기능을 현재 파일에서 사용할 수 있게 가져오는 명령어입니다.
+import moment from "moment";                                 // 날짜와 시간을 쉽게 다루는 라이브러리 (예: 날짜 포맷 변환, 계산 등)
+import { ScraperServiceABC, sleep } from "@qillie/wheel-micro-service"; // 기본 스크래퍼 서비스 클래스와 실행 지연(대기) 함수
+import _ from "lodash";                                      // 배열, 객체 등을 편리하게 다룰 수 있는 유틸리티 함수 모음 라이브러리
+import sequelize from "sequelize";                           // 데이터베이스 작업을 위한 ORM(Object Relational Mapping) 라이브러리
+import axios from "axios";                                   // HTTP 요청(API 호출 등)을 보내기 위한 라이브러리
+import puppeteer from "puppeteer";                           // 웹 브라우저 자동화 라이브러리 (실제 Chrome 브라우저 제어)
+import { Browser, Page } from "puppeteer";                   // puppeteer에서 사용하는 Browser와 Page 타입을 가져옴 (타입스크립트 타입 정의)
 
 /**
- * 채용 공고 정보 인터페이스
- * 스크랩한 채용 공고의 정보를 담는 구조
+ * 채용 공고 정보 인터페이스 - 스크랩한 채용 공고의 정보를 담는 구조
  * 
- * 인터페이스란? 객체가 어떤 속성과 타입을 가져야 하는지 정의하는 '설계도'입니다.
- * 실제 데이터는 포함하지 않고 구조만 정의합니다.
+ * 인터페이스란? 객체의 구조(설계도)를 정의하는 것으로, 어떤 속성들이 있어야 하고 
+ * 각 속성이 어떤 타입(종류)인지 미리 정해둔 것입니다.
+ * 실제 데이터는 포함하지 않고, 데이터의 형태만 정의합니다.
+ * 
+ * 예를 들어, 아래 인터페이스는 "JobInfo라는 객체는 회사명, 채용제목 등의 속성을 
+ * 반드시 가져야 하며, 각 속성은 문자열 타입이어야 한다"를 의미합니다.
  */
 interface JobInfo {
-  companyName: string;  // 회사명 (문자열 타입)
-  jobTitle: string;     // 채용 제목 (문자열 타입)
-  jobLocation: string;  // 근무지 위치 (문자열 타입)
-  jobType: string;      // 채용 형태 (경력/신입 등) (문자열 타입)
-  jobSalary: string;    // 급여 정보 (문자열 타입)
-  deadline: string;     // 지원 마감일 (문자열 타입)
-  url?: string;         // 원본 채용공고 URL (선택적 속성, ?는 이 속성이 없을 수도 있다는 의미)
+  companyName: string;  // 회사명 (문자열 타입) - 예: "삼성전자", "네이버" 등
+  jobTitle: string;     // 채용 제목 (문자열 타입) - 예: "프론트엔드 개발자 채용"
+  jobLocation: string;  // 근무지 위치 (문자열 타입) - 예: "서울시 강남구"
+  jobType: string;      // 채용 형태 (문자열 타입) - 예: "신입", "경력 3년 이상"
+  jobSalary: string;    // 급여 정보 (문자열 타입) - 예: "3,000만원 이상", "회사 내규에 따름"
+  deadline: string;     // 지원 마감일 (문자열 타입) - 예: "2023-12-31"
+  url?: string;         // 원본 채용공고 URL (문자열 타입, ?는 이 속성이 없어도 된다는 의미, 선택적 속성)
+                        // 예: "https://www.saramin.co.kr/job/123456"
 }
 
 /**
- * 스크래퍼 설정 인터페이스
- * 스크래퍼 동작을 제어하기 위한 설정값들을 정의합니다.
+ * 스크래퍼 설정 인터페이스 - 스크래퍼 동작 방식을 제어하는 설정값 구조
  * 
- * 모든 속성에 ?가 붙은 것은 '선택적 속성'으로, 반드시 값을 제공하지 않아도 된다는 의미입니다.
+ * 모든 속성에 ?가 붙은 것은 '선택적 속성'으로, 
+ * 이 속성들은 반드시 제공하지 않아도 된다는 의미입니다.
+ * 즉, 일부 설정만 변경하고 나머지는 기본값을 사용할 수 있습니다.
  */
 interface ScraperConfig {
-  startPage?: number;    // 스크랩 시작 페이지 번호 (선택적, 숫자 타입)
-  endPage?: number;      // 스크랩 종료 페이지 번호 (선택적, 숫자 타입)
-  headless?: boolean;    // 헤드리스 모드 여부 - true면 브라우저 UI가 보이지 않고, false면 보임 (선택적, 불리언 타입)
-  waitTime?: number;     // 페이지 로딩 후 대기 시간(밀리초) - 페이지 완전히 로드되길 기다리는 시간 (선택적, 숫자 타입)
+  startPage?: number;    // 스크랩 시작 페이지 번호 (선택적, 숫자 타입) - 예: 1, 2, 3...
+  endPage?: number;      // 스크랩 종료 페이지 번호 (선택적, 숫자 타입) - 예: 10, 20...
+  headless?: boolean;    // 헤드리스 모드 여부 (선택적, 불리언(참/거짓) 타입)
+                         // true면 브라우저 화면이 보이지 않고, false면 실제 브라우저가 화면에 표시됨
+  waitTime?: number;     // 페이지 로딩 후 대기 시간(밀리초) (선택적, 숫자 타입)
+                         // 페이지가 완전히 로드되길 기다리는 시간 - 예: 1000 (1초), 2000 (2초)...
 }
 
 /**
  * @name 사람인 스크래퍼
  * @description 사람인 웹사이트의 채용정보를 자동으로 수집하는 서비스 클래스
  * 
- * 클래스란? 특정 객체를 생성하기 위한 템플릿이며, 속성(변수)과 메서드(함수)를 포함합니다.
- * extends ScraperServiceABC: ScraperServiceABC라는 기본 클래스의 기능을 상속받아 확장한다는 의미입니다.
+ * 클래스란? 비슷한 특성과 기능을 가진 코드들을 묶어놓은 '틀'입니다.
+ * 속성(변수)과 메서드(함수)를 포함하며, 이 틀을 기반으로 객체를 생성할 수 있습니다.
+ * 
+ * extends ScraperServiceABC는 "상속"이라는 개념으로,
+ * ScraperServiceABC라는 기본 클래스의 기능을 물려받아 확장한다는 의미입니다.
+ * 마치 '자동차'라는 기본 클래스를 확장해서 '스포츠카' 클래스를 만드는 것과 비슷합니다.
+ * 
+ * export default는 이 클래스를 다른 파일에서 import 할 수 있게 내보낸다는 의미입니다.
  */
 export default class ScraperControlService extends ScraperServiceABC {
   /**
    * 기본 스크래퍼 설정값
    * 사용자가 별도 설정을 제공하지 않을 때 사용되는 기본값들입니다.
    * 
-   * private: 이 변수는 이 클래스 내부에서만 접근 가능하다는 의미입니다.
+   * private 키워드는 이 변수가 이 클래스 내부에서만 접근 가능하다는 의미입니다.
+   * 클래스 외부에서는 이 변수에 직접 접근할 수 없습니다.
    */
   private defaultConfig: ScraperConfig = {
     startPage: 2,       // 기본 시작 페이지는 2페이지 (첫 페이지를 건너뜀)
     endPage: 20,        // 기본 종료 페이지는 20페이지 (2~20페이지까지 스크랩)
-    headless: false,    // 기본적으로 브라우저 UI 표시 (디버깅하기 쉽게)
+    headless: false,    // 기본적으로 브라우저 UI 표시 (false이므로 브라우저가 화면에 보임, 디버깅하기 쉽게)
     waitTime: 2000      // 기본 대기 시간은 2초 (2000밀리초)
   };
 
@@ -64,55 +78,70 @@ export default class ScraperControlService extends ScraperServiceABC {
    * 
    * @method openSaramin - 메서드(함수) 이름
    * @description
-   * - Puppeteer를 사용해 실제 브라우저를 실행하고 사람인 채용정보 페이지에 접속합니다.
+   * - Puppeteer를 사용해 실제 크롬 브라우저를 실행하고 사람인 채용정보 페이지에 접속합니다.
    * - 설정된 페이지 범위(startPage~endPage)를 순차적으로 접근합니다.
    * - 각 페이지에서 채용공고 항목을 수집합니다.
    * - 각 채용공고의 상세 페이지로 이동하여 자세한 정보를 수집합니다.
    * 
-   * @param config - 스크래퍼 설정 객체 (선택적)
-   * @returns - 수집된 채용정보 배열을 Promise 형태로 반환 (Promise란? 비동기 작업의 결과를 나타내는 객체)
+   * @param config - 스크래퍼 설정 객체 (선택적) - 사용자가 기본 설정을 변경하고 싶을 때 전달하는 값
+   * @returns - 수집된 채용정보 배열을 Promise 형태로 반환
+   *   (Promise란? 비동기 작업의 최종 완료 또는 실패를 나타내는 객체로, 
+   *    미래에 완료될 예정인 작업의 결과값을 담고 있습니다.)
    * 
    * public: 이 메서드는 클래스 외부에서 접근 가능하다는 의미입니다.
    * async: 비동기 함수로, 내부에서 await 키워드를 사용할 수 있게 해줍니다.
+   *   (비동기란? 작업이 완료될 때까지 기다리지 않고 다음 코드를 실행하는 방식입니다.
+   *    웹 스크래핑처럼 시간이 오래 걸리는 작업을 효율적으로 처리할 수 있게 해줍니다.)
    */
   public async openSaramin(config: ScraperConfig = {}): Promise<JobInfo[]> {
     // 기본 설정과 사용자 제공 설정을 병합하고 undefined 값에 대해 기본값 설정
-    // ?? 연산자: 왼쪽 값이 null이나 undefined면 오른쪽 값을 사용하는 논리 연산자
+    // ?? 연산자: 널 병합 연산자로, 왼쪽 값이 null이나 undefined면 오른쪽 값을 사용하는 논리 연산자
+    // 예: x ?? y 는 x가 null이나 undefined면 y를, 그렇지 않으면 x를 반환합니다.
     const startPage = config.startPage ?? this.defaultConfig.startPage ?? 2;
     const endPage = config.endPage ?? this.defaultConfig.endPage ?? 20;
     const headless = config.headless ?? this.defaultConfig.headless ?? false;
     const waitTime = config.waitTime ?? this.defaultConfig.waitTime ?? 2000;
     
     let browser: Browser | null = null;      // 브라우저 객체를 저장할 변수 (초기값은 null)
+                                            // Browser는 Puppeteer에서 제공하는 타입으로, 실제 브라우저 인스턴스를 나타냄
     const collectedJobs: JobInfo[] = [];     // 수집된 채용정보를 저장할 배열 (빈 배열로 초기화)
+                                            // JobInfo[]는 "JobInfo 타입의 배열"을 의미함
     
     // 스크래핑 시작 메시지 콘솔에 출력
-    console.log(`\n🚀 사람인 채용정보 스크래핑 시작`);
+    // console.log는 콘솔(터미널)에 텍스트를 출력하는 함수입니다.
+    console.log(`\n🚀 사람인 채용정보 스크래핑 시작`);  // \n은 줄바꿈 문자입니다.
     console.log(`📄 페이지 범위: ${startPage} ~ ${endPage} 페이지`);
     console.log(`⚙️ 설정: 헤드리스 모드=${headless}, 대기 시간=${waitTime}ms\n`);
 
     // 스크래핑 시작 시간 기록 (성능 측정용)
     const startTime = Date.now();  // 현재 시간을 밀리초 단위로 가져옴
+                                  // Date.now()는 1970년 1월 1일부터 현재까지의 밀리초를 반환합니다.
 
     try {
-      // try-catch 구문: 오류가 발생할 수 있는 코드를 감싸고, 오류 시 프로그램이 중단되지 않도록 처리
+      // try-catch 구문: 오류가 발생할 수 있는 코드를 감싸고, 오류 발생 시 프로그램이 중단되지 않도록 처리합니다.
+      // try 블록에서 오류가 발생하면 catch 블록으로 넘어가 오류를 처리합니다.
       
-      // 브라우저 초기화 (헤드리스 모드 설정에 따라)
+      // 브라우저 초기화 (헤드리스 모드 설정에 따라 실제 브라우저 화면 표시 여부 결정)
       browser = await this.initializeBrowser(headless);
-      // await: 비동기 작업이 완료될 때까지 기다린다는 의미
-      const page = await browser.newPage();  // 새 브라우저 탭 열기
+      // await: 비동기 작업이 완료될 때까지 기다린다는 의미로, Promise가 완료될 때까지 함수 실행을 일시 중지합니다.
+      // 브라우저 초기화가 끝날 때까지 기다린 후 다음 코드로 넘어갑니다.
+      const page = await browser.newPage();  // 새 브라우저 탭(페이지) 열기
       
       // 페이지 로딩 타임아웃 설정 (30초)
-      page.setDefaultTimeout(30000);  // 페이지 작업이 30초 이상 걸리면 오류 발생
+      page.setDefaultTimeout(30000);  // 페이지 작업(로딩, 이동 등)이 30초(30,000밀리초) 이상 걸리면 오류 발생
+                                     // 무한 대기 상태 방지를 위한 안전장치
 
       // 페이지 범위 내 각 페이지 처리
       // for 반복문: startPage부터 endPage까지 1씩 증가하며 반복
+      // 예: startPage가 2, endPage가 5라면 i는 2, 3, 4, 5 순으로 증가하며 반복문 실행
       for (let i = startPage; i <= endPage; i++) {
         console.log(`\n🔍 페이지 ${i} 스크래핑 시작...`);
         
         // 현재 페이지의 채용정보 수집 및 결과 배열에 저장
         const pageJobs = await this.processSaraminPage(page, i, waitTime);
-        // ...연산자: 배열을 펼쳐서 개별 요소로 만들고, 이를 collectedJobs 배열에 추가
+        // ...연산자(스프레드 연산자): 배열을 펼쳐서 개별 요소로 만듭니다.
+        // 예: [1, 2, 3]을 ...[1, 2, 3]으로 펼치면 1, 2, 3이 됩니다.
+        // push(...pageJobs)는 pageJobs 배열의 각 요소를 collectedJobs 배열에 개별적으로 추가합니다.
         collectedJobs.push(...pageJobs);
         
         console.log(`✅ 페이지 ${i} 완료: ${pageJobs.length}개의 채용공고 추출`);
@@ -122,21 +151,22 @@ export default class ScraperControlService extends ScraperServiceABC {
       this.printSummary(collectedJobs);
       
       // 소요 시간 계산 및 출력
-      const endTime = Date.now();
-      const elapsedTime = (endTime - startTime) / 1000; // 밀리초를 초 단위로 변환
-      console.log(`⏱️ 총 소요 시간: ${elapsedTime.toFixed(2)}초`);  // 소수점 2자리까지 표시
+      const endTime = Date.now();  // 현재 시간(종료 시간)
+      const elapsedTime = (endTime - startTime) / 1000; // 밀리초를 초 단위로 변환 (1초 = 1000밀리초)
+      console.log(`⏱️ 총 소요 시간: ${elapsedTime.toFixed(2)}초`);  // toFixed(2)는 소수점 2자리까지만 표시
       
-      return collectedJobs;  // 수집된 모든 채용정보 반환
+      return collectedJobs;  // 수집된 모든 채용정보 반환 (함수 종료)
     } catch (error) {
       // 스크래핑 도중 오류 발생 시 로깅하고 지금까지 수집된 결과 반환
-      console.error(`❌ 스크래핑 중 오류 발생:`, error);
+      console.error(`❌ 스크래핑 중 오류 발생:`, error);  // console.error는 오류 메시지 출력용 함수
       return collectedJobs;  // 오류 발생해도 지금까지 수집된 데이터는 반환
     } finally {
       // finally 블록: try나 catch 후에 항상 실행되는 코드
+      // 성공하든 실패하든 반드시 실행해야 하는 코드를 여기에 작성합니다.
       
       // 오류 발생 여부와 관계없이 브라우저 종료 (리소스 정리를 위해 중요)
-      if (browser) {  // browser가 null이 아닐 경우에만
-        await browser.close();  // 브라우저 종료
+      if (browser) {  // browser가 null이 아닐 경우에만 (browser가 성공적으로 초기화된 경우)
+        await browser.close();  // 브라우저 종료 (메모리 등 시스템 자원 해제)
         console.log(`🏁 브라우저 종료 및 스크래핑 완료`);
       }
     }
@@ -149,33 +179,37 @@ export default class ScraperControlService extends ScraperServiceABC {
    * @returns - 초기화된 Puppeteer 브라우저 객체
    * 
    * private: 이 메서드는 클래스 내부에서만 호출 가능하다는 의미입니다.
+   * 클래스 외부에서는 이 메서드를 직접 호출할 수 없습니다.
    */
   private async initializeBrowser(headless: boolean = false): Promise<Browser> {
     // 브라우저 실행 옵션을 설정하고 브라우저 인스턴스 반환
+    // puppeteer.launch()는 새로운 브라우저 인스턴스를 시작하는 함수입니다.
     return puppeteer.launch({
       headless,  // 헤드리스 모드 설정 (true: UI 없음, false: UI 표시)
-      defaultViewport: null,  // 뷰포트(화면) 크기를 자동으로 조정
+                 // 변수명과 값이 같을 때는 headless: headless처럼 쓰지 않고 줄여서 작성 가능
+      defaultViewport: null,  // 뷰포트(화면) 크기를 자동으로 조정 (null은 브라우저 창 크기에 맞춤)
       args: [
-        // 브라우저 실행 시 전달할 명령줄 인자들 (다양한 보안 및 성능 설정)
-        "--disable-web-security",              // 웹 보안 비활성화 (CORS 우회 - 다른 도메인 접근 허용)
+        // 브라우저 실행 시 전달할 명령줄 인자(옵션)들 (다양한 보안 및 성능 설정)
+        "--disable-web-security",              // 웹 보안 비활성화 (CORS 우회 - 다른 도메인의 리소스 접근 허용)
         "--disable-features=IsolateOrigins,site-per-process",  // 사이트 격리 기능 비활성화
-        "--allow-running-insecure-content",    // 안전하지 않은 컨텐츠 실행 허용
-        "--no-sandbox",                        // 샌드박스 모드 비활성화 (성능 향상)
+        "--allow-running-insecure-content",    // 안전하지 않은 컨텐츠 실행 허용 (http와 https 혼합 허용)
+        "--no-sandbox",                        // 샌드박스 모드 비활성화 (성능 향상, 단 보안은 약화)
         "--disable-setuid-sandbox",            // setuid 샌드박스 비활성화
-        "--disable-dev-shm-usage"              // 공유 메모리 사용 비활성화 (안정성 향상)
+        "--disable-dev-shm-usage"              // 공유 메모리 사용 비활성화 (안정성 향상, 메모리 부족 문제 해결)
       ],
     });
   }
 
   /**
    * 사람인의 단일 채용 목록 페이지를 처리하는 메서드
+   * 한 페이지에 있는 여러 채용공고 링크를 찾고 각각의 상세 정보를 추출합니다.
    * 
    * @param page - Puppeteer 페이지 객체 (브라우저의 탭을 나타냄)
-   * @param pageNum - 처리할 페이지 번호
+   * @param pageNum - 처리할 페이지 번호 (예: 1, 2, 3...)
    * @param waitTime - 페이지 로딩 후 대기 시간 (밀리초)
    * @returns - 페이지에서 수집된 채용정보 배열
    * 
-   * private: 클래스 내부에서만 호출 가능
+   * private: 클래스 내부에서만 호출 가능 (외부에서 직접 호출 불가)
    */
   private async processSaraminPage(page: Page, pageNum: number, waitTime: number): Promise<JobInfo[]> {
     // 현재 페이지에서 수집된 채용정보를 저장할 배열
@@ -184,7 +218,9 @@ export default class ScraperControlService extends ScraperServiceABC {
     try {
       // 채용 목록 페이지 URL 생성 및 페이지 이동
       const pageUrl = this.buildSaraminPageUrl(pageNum);
-      // 페이지 이동 및 네트워크 요청이 완료될 때까지 대기 (페이지가 완전히 로드됨을 보장)
+      // 페이지 이동 및 네트워크 요청이 완료될 때까지 대기
+      // waitUntil: "networkidle2"는 더 이상 네트워크 연결이 없을 때까지(최소 500ms 동안 2개 이하의 연결만 있을 때) 대기하라는 의미
+      // 페이지가 완전히 로드됨을 보장
       await page.goto(pageUrl, { waitUntil: "networkidle2" }); 
       await sleep(waitTime); // 추가 로딩을 위한 대기 시간 (자바스크립트 등이 실행될 시간 확보)
 
@@ -193,45 +229,9 @@ export default class ScraperControlService extends ScraperServiceABC {
       console.log(`페이지 ${pageNum}: ${links.length}개의 채용공고를 발견했습니다`);
 
       // 각 채용 공고 링크에 대해 처리
-      // for...of 반복문: 배열의 각 요소를 순회
-      for (const link of links) {
-        try {
-          // 전체 URL 구성 및 채용 상세 정보 추출
-          const fullUrl = `https://www.saramin.co.kr${link}`;
-          const jobInfo = await this.extractJobDetails(page, fullUrl, waitTime);
-          
-          // 유효한 채용정보가 추출된 경우 결과 배열에 추가
-          if (jobInfo) {
-            jobInfo.url = fullUrl; // 원본 URL 저장 (나중에 참조하기 위해)
-            pageJobs.push(jobInfo);
-          }
-        } catch (error) {
-          // 개별 채용공고 처리 중 오류 발생 시 로깅 후 계속 진행
-          // 하나의 채용공고에서 오류가 발생해도 전체 프로세스는 계속 진행
-          console.error(`채용공고 정보 추출 오류: ${error}`);
-          continue; // 다음 링크로 진행 (현재 반복을 건너뜀)
-        }
-      }
-    } catch (error) {
-      // 페이지 전체 처리 중 오류 발생 시 로깅
-      console.error(`페이지 ${pageNum} 처리 중 오류 발생: ${error}`);
-    }
-    
-    return pageJobs; // 수집된 채용정보 반환
-  }
-
-  /**
-   * 사람인 특정 페이지의 URL을 생성하는 메서드
-   * 
-   * @param pageNum - 페이지 번호
-   * @returns - 완성된 사람인 페이지 URL 문자열
-   * 
-   * private: 클래스 내부에서만 호출 가능
-   */
-  private buildSaraminPageUrl(pageNum: number): string {
-    // IT/개발 직군 채용정보로 필터링된 URL 생성
-    // 다양한 파라미터가 포함된 복잡한 URL을 구성
-    // loc_mcd: 지역 코드, cat_kewd: 직종 카테고리 코드, page_count: 한 페이지당 결과 수 등
+      // for...of 반복문: 배열의 각 요소를 순회합니다.
+      // 예: links 배열이 ['/job/1', '/job/2']라면,
+      // link는 첫 번째 반복에서 '/job/1', 두 번째 반복에서 '/job/2'가 됩니다.
     return `https://www.saramin.co.kr/zf_user/jobs/list/domestic?page=${pageNum}&loc_mcd=101000%2C102000&cat_kewd=2248%2C82%2C83%2C107%2C108%2C109&search_optional_item=n&search_done=y&panel_count=y&preview=y&isAjaxRequest=0&page_count=50&sort=RL&type=domestic&is_param=1&isSearchResultEmpty=1&isSectionHome=0&searchParamCount=2#searchTitle`;
   }
 
@@ -469,7 +469,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     
     // 경력 조건별 통계
     const jobTypeCounts: Record<string, number> = {};
-    jobs.forEach(job => {
+    jobs.forEach(job => {I
       const type = job.jobType || '미지정';
       jobTypeCounts[type] = (jobTypeCounts[type] || 0) + 1;
     });
