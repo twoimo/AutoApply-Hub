@@ -103,9 +103,9 @@ export default class ScraperControlService extends ScraperServiceABC {
    */
   private defaultConfig: ScraperConfig = {
     startPage: 2,       // 기본 시작 페이지는 2페이지 (첫 페이지를 건너뜀)
-    endPage: 31,        // 기본 종료 페이지는 20페이지 (2~20페이지까지 스크랩)
+    endPage: 31,        // 기본 종료 페이지는 31페이지 (2~31페이지까지 스크랩)
     headless: false,    // 기본적으로 브라우저 UI 표시 (디버깅하기 쉽게)
-    waitTime: Math.floor(Math.random() * 4001) + 3000      // 3~6초(2000~6000ms) 사이 랜덤 대기 시간
+    waitTime: Math.floor(Math.random() * 2001) + 4000    // 4~6초(4000~6000ms) 사이 랜덤 대기 시간
   };
 
   /**
@@ -315,7 +315,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     // IT/개발 직군 채용정보로 필터링된 URL 생성
     // 다양한 파라미터가 포함된 복잡한 URL을 구성
     // loc_mcd: 지역 코드, cat_kewd: 직종 카테고리 코드, page_count: 한 페이지당 결과 수 등
-    return `https://www.saramin.co.kr/zf_user/jobs/list/domestic?page=${pageNum}&loc_mcd=101000%2C102000&cat_kewd=2248%2C82%2C83%2C107%2C108%2C109&search_optional_item=n&search_done=y&panel_count=y&preview=y&isAjaxRequest=0&page_count=50&sort=RL&type=domestic&is_param=1&isSearchResultEmpty=1&isSectionHome=0&searchParamCount=2#searchTitle`;
+    return `https://www.saramin.co.kr/zf_user/jobs/list/domestic?page=${pageNum}&loc_mcd=101000%2C102000&cat_kewd=2248%2C82%2C83%2C107%2C108%2C109%2C116%2C106%2C105%2C2239%2C80%2C81&edu_none=y&edu_min=8&edu_max=12&search_optional_item=y&search_done=y&panel_count=y&preview=y&isAjaxRequest=0&page_count=50&sort=RL&type=domestic&is_param=1&isSearchResultEmpty=1&isSectionHome=0&searchParamCount=5#searchTitle`;
   }
 
   /**
