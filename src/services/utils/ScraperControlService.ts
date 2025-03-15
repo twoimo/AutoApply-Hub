@@ -105,7 +105,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     startPage: 2,       // 기본 시작 페이지는 2페이지 (첫 페이지를 건너뜀)
     endPage: 31,        // 기본 종료 페이지는 20페이지 (2~20페이지까지 스크랩)
     headless: false,    // 기본적으로 브라우저 UI 표시 (디버깅하기 쉽게)
-    waitTime: Math.floor(Math.random() * 4001) + 2000      // 2~6초(2000~6000ms) 사이 랜덤 대기 시간
+    waitTime: Math.floor(Math.random() * 4001) + 3000      // 3~6초(2000~6000ms) 사이 랜덤 대기 시간
   };
 
   /**
@@ -471,11 +471,22 @@ export default class ScraperControlService extends ScraperServiceABC {
         const jobLocation = columnInfo["근무지역"]?.replace(/지도/g, "").trim() || "";
         
         // 마감일 정보 추출 (여러 필드 시도)
-        const deadline = columnInfo["접수기간"] || 
-                         columnInfo["마감일"] || 
-                         columnInfo["모집기간"] || 
-                         columnInfo["공고기간"] || 
-                         extractDeadline();
+        // 마감일 정보 추출 - 새로운 HTML 구조 대응
+        let deadline = "";
+        
+        // 시간/날짜 정보를 담고 있는 info_period 클래스 확인
+        const infoDeadline = wrapContainer.querySelector(".info_period");
+        if (infoDeadline) {
+          // 마감일(dt.end) 뒤에 오는 dd 요소 찾기
+          const endDt = infoDeadline.querySelector("dt.end");
+          if (endDt && endDt.textContent?.includes("마감일")) {
+            // 마감일 dt 다음에 오는 dd 요소의 내용 가져오기
+            const endDd = endDt.nextElementSibling;
+            if (endDd && endDd.tagName.toLowerCase() === "dd") {
+              deadline = endDd.textContent?.trim() || "";
+            }
+          }
+        }
         
         // 급여 정보 추출 및 정리 (불필요한 부분 제거)
         let jobSalary = columnInfo["급여"] || columnInfo["급여조건"] || "";
