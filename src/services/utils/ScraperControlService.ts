@@ -1,3 +1,28 @@
+/**
+ * 🚀 웹 스크래퍼 서비스 클래스
+ * 
+ * 📌 이 파일은 무엇인가요?
+ * - 사람인 웹사이트에서 채용 정보를 자동으로 수집하는 프로그램입니다.
+ * - 웹 브라우저를 자동으로 제어하여 여러 페이지의 채용공고를 수집하고 분석합니다.
+ * - 수집된 채용정보는 데이터베이스에 저장됩니다.
+ * 
+ * 📚 주요 기능:
+ * 1. 웹 브라우저 자동 실행 및 제어 (Puppeteer 사용)
+ * 2. 사람인 웹사이트의 채용정보 페이지 접근 및 정보 추출
+ * 3. 이미 수집된 채용공고인지 확인하여 중복 수집 방지
+ * 4. 추출된 채용정보를 데이터베이스에 저장
+ * 5. 수집 결과 요약 및 통계 제공
+ * 
+ * 💻 사용 방법:
+ * - ScraperControlService 인스턴스를 생성하고 openSaramin() 메서드를 호출하면 스크래핑이 시작됩니다.
+ * - 시작 페이지, 종료 페이지, 헤드리스 모드, 대기 시간 등 다양한 설정을 제공할 수 있습니다.
+ * 
+ * ✨ 초보자를 위한 팁:
+ * - 클래스: 관련 기능들을 묶어놓은 '설계도'입니다.
+ * - 인터페이스: 객체가 가져야 할 속성과 타입을 정의한 '명세서'입니다.
+ * - 비동기(async/await): 시간이 걸리는 작업을 기다리는 동안 프로그램이 멈추지 않게 해주는 기술입니다.
+ */
+
 // 필요한 외부 라이브러리들을 가져옵니다.
 // import 구문: 다른 파일이나 라이브러리의 기능을 현재 파일에서 사용하기 위해 가져오는 문법입니다.
 import moment from "moment";                                 // 날짜와 시간을 쉽게 다루는 라이브러리
@@ -7,13 +32,20 @@ import sequelize from "sequelize";                           // 데이터베이�
 import axios from "axios";                                   // HTTP 요청을 보내기 위한 라이브러리
 import puppeteer from "puppeteer";                           // 웹 브라우저 자동화 라이브러리
 import { Browser, Page } from "puppeteer";                   // 타입스크립트용 puppeteer 타입 정의
+import CompanyRecruitmentTable from "../../models/main/CompanyRecruitmentTable";
 
 /**
  * 채용 공고 정보 인터페이스
- * 스크랩한 채용 공고의 정보를 담는 구조
  * 
- * 인터페이스란? 객체가 어떤 속성과 타입을 가져야 하는지 정의하는 '설계도'입니다.
- * 실제 데이터는 포함하지 않고 구조만 정의합니다.
+ * 🔎 설명: 
+ * - 스크랩한 채용 공고의 정보를 담는 구조를 정의합니다.
+ * - 각 속성은 채용공고의 특정 정보(회사명, 제목 등)를 나타냅니다.
+ * - 타입스크립트의 인터페이스는 코드가 일관된 형태로 작성되도록 도와주는 '설계도'와 같습니다.
+ * 
+ * 💡 인터페이스란? 
+ * - 객체가 어떤 속성과 타입을 가져야 하는지 정의하는 '설계도'입니다.
+ * - 실제 데이터는 포함하지 않고 구조만 정의합니다.
+ * - TypeScript에서 코드의 안정성을 높이고 개발 중 오류를 줄이는 데 도움을 줍니다.
  */
 interface JobInfo {
   companyName: string;  // 회사명 (문자열 타입)
@@ -27,9 +59,15 @@ interface JobInfo {
 
 /**
  * 스크래퍼 설정 인터페이스
- * 스크래퍼 동작을 제어하기 위한 설정값들을 정의합니다.
  * 
- * 모든 속성에 ?가 붙은 것은 '선택적 속성'으로, 반드시 값을 제공하지 않아도 된다는 의미입니다.
+ * 🔎 설명:
+ * - 스크래퍼 동작을 제어하기 위한 설정값들을 정의합니다.
+ * - 사용자가 스크래퍼의 동작 방식을 커스터마이즈할 수 있게 해줍니다.
+ * - 예: 스크랩할 페이지 범위, 브라우저 표시 여부 등을 설정할 수 있습니다.
+ * 
+ * 💡 선택적 속성(?) 이란?
+ * - 모든 속성에 ?가 붙은 것은 '선택적 속성'으로, 반드시 값을 제공하지 않아도 된다는 의미입니다.
+ * - 예를 들어 { startPage: 1 }처럼 일부 속성만 설정할 수 있습니다.
  */
 interface ScraperConfig {
   startPage?: number;    // 스크랩 시작 페이지 번호 (선택적, 숫자 타입)
@@ -42,8 +80,19 @@ interface ScraperConfig {
  * @name 사람인 스크래퍼
  * @description 사람인 웹사이트의 채용정보를 자동으로 수집하는 서비스 클래스
  * 
- * 클래스란? 특정 객체를 생성하기 위한 템플릿이며, 속성(변수)과 메서드(함수)를 포함합니다.
- * extends ScraperServiceABC: ScraperServiceABC라는 기본 클래스의 기능을 상속받아 확장한다는 의미입니다.
+ * 🔎 설명:
+ * - 이 클래스는 사람인 웹사이트에서 채용공고를 자동으로 수집하는 모든 기능을 담고 있습니다.
+ * - 웹 브라우저를 자동으로 제어하여 여러 페이지의 채용정보를 수집합니다.
+ * - 이미 수집된 채용공고는 건너뛰어 효율적으로 스크래핑합니다.
+ * 
+ * 💡 클래스란? 
+ * - 특정 객체를 생성하기 위한 템플릿이며, 속성(변수)과 메서드(함수)를 포함합니다.
+ * - 비슷한 기능들을 하나로 묶어서 코드를 정리하고 재사용하기 쉽게 만듭니다.
+ * 
+ * 💡 extends ScraperServiceABC란? 
+ * - ScraperServiceABC라는 기본 클래스의 기능을 상속받아 확장한다는 의미입니다.
+ * - 상속이란 이미 만들어진 클래스의 기능을 그대로 물려받고 추가 기능을 더하는 개념입니다.
+ * - 이를 통해 코드 중복을 줄이고 일관된 구조를 유지할 수 있습니다.
  */
 export default class ScraperControlService extends ScraperServiceABC {
   /**
@@ -76,71 +125,67 @@ export default class ScraperControlService extends ScraperServiceABC {
    * async: 비동기 함수로, 내부에서 await 키워드를 사용할 수 있게 해줍니다.
    */
   public async openSaramin(config: ScraperConfig = {}): Promise<JobInfo[]> {
-    // 기본 설정과 사용자 제공 설정을 병합하고 undefined 값에 대해 기본값 설정
-    // ?? 연산자: 왼쪽 값이 null이나 undefined면 오른쪽 값을 사용하는 논리 연산자
+    // Existing code for configuration
     const startPage = config.startPage ?? this.defaultConfig.startPage ?? 2;
     const endPage = config.endPage ?? this.defaultConfig.endPage ?? 20;
     const headless = config.headless ?? this.defaultConfig.headless ?? false;
     const waitTime = config.waitTime ?? this.defaultConfig.waitTime ?? 2000;
     
-    let browser: Browser | null = null;      // 브라우저 객체를 저장할 변수 (초기값은 null)
-    const collectedJobs: JobInfo[] = [];     // 수집된 채용정보를 저장할 배열 (빈 배열로 초기화)
+    let browser: Browser | null = null;
+    const collectedJobs: JobInfo[] = [];
     
-    // 스크래핑 시작 메시지 콘솔에 출력
+    // Logging start message
     console.log(`\n🚀 사람인 채용정보 스크래핑 시작`);
     console.log(`📄 페이지 범위: ${startPage} ~ ${endPage} 페이지`);
     console.log(`⚙️ 설정: 헤드리스 모드=${headless}, 대기 시간=${waitTime}ms\n`);
-
-    // 스크래핑 시작 시간 기록 (성능 측정용)
-    const startTime = Date.now();  // 현재 시간을 밀리초 단위로 가져옴
-
+  
+    const startTime = Date.now();
+    
+    // Add a counter for duplicate URLs
+    let consecutiveDuplicates = 0;
+    let continueScrapping = true;
+  
     try {
-      // try-catch 구문: 오류가 발생할 수 있는 코드를 감싸고, 오류 시 프로그램이 중단되지 않도록 처리
-      
-      // 브라우저 초기화 (헤드리스 모드 설정에 따라)
       browser = await this.initializeBrowser(headless);
-      // await: 비동기 작업이 완료될 때까지 기다린다는 의미
-      const page = await browser.newPage();  // 새 브라우저 탭 열기
-      
-      // 페이지 로딩 타임아웃 설정 (30초)
-      page.setDefaultTimeout(30000);  // 페이지 작업이 30초 이상 걸리면 오류 발생
-
-      // 페이지 범위 내 각 페이지 처리
-      // for 반복문: startPage부터 endPage까지 1씩 증가하며 반복
-      for (let i = startPage; i <= endPage; i++) {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(30000);
+  
+      // Modify the loop to check the continueScrapping flag
+      for (let i = startPage; i <= endPage && continueScrapping; i++) {
         console.log(`\n🔍 페이지 ${i} 스크래핑 시작...`);
         
-        // 현재 페이지의 채용정보 수집 및 결과 배열에 저장
-        const pageJobs = await this.processSaraminPage(page, i, waitTime);
-        // ...연산자: 배열을 펼쳐서 개별 요소로 만들고, 이를 collectedJobs 배열에 추가
-        collectedJobs.push(...pageJobs);
+        // Process page and check for duplicates
+        const pageJobs = await this.processSaraminPage(page, i, waitTime, consecutiveDuplicates, continueScrapping);
         
+        // Check if we should stop scraping due to duplicates
+        if (!continueScrapping) {
+          console.log(`\n⚠️ 연속적으로 중복된 채용공고가 발견되어 스크래핑을 중단합니다.`);
+          break;
+        }
+        
+        collectedJobs.push(...pageJobs);
         console.log(`✅ 페이지 ${i} 완료: ${pageJobs.length}개의 채용공고 추출`);
       }
       
-      // 스크래핑 결과 요약 출력
+      // Existing summary code
       this.printSummary(collectedJobs);
       
-      // 소요 시간 계산 및 출력
       const endTime = Date.now();
-      const elapsedTime = (endTime - startTime) / 1000; // 밀리초를 초 단위로 변환
-      console.log(`⏱️ 총 소요 시간: ${elapsedTime.toFixed(2)}초`);  // 소수점 2자리까지 표시
+      const elapsedTime = (endTime - startTime) / 1000;
+      console.log(`⏱️ 총 소요 시간: ${elapsedTime.toFixed(2)}초`);
       
-      return collectedJobs;  // 수집된 모든 채용정보 반환
+      return collectedJobs;
     } catch (error) {
-      // 스크래핑 도중 오류 발생 시 로깅하고 지금까지 수집된 결과 반환
       console.error(`❌ 스크래핑 중 오류 발생:`, error);
-      return collectedJobs;  // 오류 발생해도 지금까지 수집된 데이터는 반환
+      return collectedJobs;
     } finally {
-      // finally 블록: try나 catch 후에 항상 실행되는 코드
-      
-      // 오류 발생 여부와 관계없이 브라우저 종료 (리소스 정리를 위해 중요)
-      if (browser) {  // browser가 null이 아닐 경우에만
-        await browser.close();  // 브라우저 종료
+      if (browser) {
+        await browser.close();
         console.log(`🏁 브라우저 종료 및 스크래핑 완료`);
       }
     }
   }
+  
 
   /**
    * 최적화된 설정으로 Puppeteer 브라우저를 초기화하는 메서드
@@ -177,49 +222,87 @@ export default class ScraperControlService extends ScraperServiceABC {
    * 
    * private: 클래스 내부에서만 호출 가능
    */
-  private async processSaraminPage(page: Page, pageNum: number, waitTime: number): Promise<JobInfo[]> {
-    // 현재 페이지에서 수집된 채용정보를 저장할 배열
-    const pageJobs: JobInfo[] = []; 
+  private async processSaraminPage(
+    page: Page, 
+    pageNum: number, 
+    waitTime: number,
+    consecutiveDuplicates: number,
+    continueScrapping: boolean
+  ): Promise<JobInfo[]> {
+    const pageJobs: JobInfo[] = [];
     
     try {
-      // 채용 목록 페이지 URL 생성 및 페이지 이동
       const pageUrl = this.buildSaraminPageUrl(pageNum);
-      // 페이지 이동 및 네트워크 요청이 완료될 때까지 대기 (페이지가 완전히 로드됨을 보장)
-      await page.goto(pageUrl, { waitUntil: "networkidle2" }); 
-      await sleep(waitTime); // 추가 로딩을 위한 대기 시간 (자바스크립트 등이 실행될 시간 확보)
-
-      // 페이지에서 채용 공고 링크들을 추출
+      await page.goto(pageUrl, { waitUntil: "networkidle2" });
+      await sleep(waitTime);
+  
+      // Extract job links
       const links = await this.extractJobLinks(page);
       console.log(`페이지 ${pageNum}: ${links.length}개의 채용공고를 발견했습니다`);
-
-      // 각 채용 공고 링크에 대해 처리
-      // for...of 반복문: 배열의 각 요소를 순회
+      
+      // Add duplicate counter for this page
+      let duplicatesInThisPage = 0;
+  
       for (const link of links) {
         try {
-          // 전체 URL 구성 및 채용 상세 정보 추출
           const fullUrl = `https://www.saramin.co.kr${link}`;
+          
+          // Check if URL already exists in the database
+          const existingJob = await CompanyRecruitmentTable.findOne({
+            where: { job_url: fullUrl }
+          });
+          
+          if (existingJob) {
+            console.log(`🔄 이미 수집된 채용공고입니다: ${fullUrl}`);
+            duplicatesInThisPage++;
+            
+            // If we find too many consecutive duplicates, stop scraping
+            if (duplicatesInThisPage >= 5) {
+              console.log(`\n⚠️ 이 페이지에서 5개 이상의 중복된 채용공고가 발견되었습니다.`);
+              continueScrapping = false;
+              break;
+            }
+            
+            continue; // Skip this job and move to next
+          }
+          
+          // Reset duplicate counter since we found a new posting
+          duplicatesInThisPage = 0;
+          
+          // Process job as usual for non-duplicates
           const jobInfo = await this.extractJobDetails(page, fullUrl, waitTime);
           
-          // 유효한 채용정보가 추출된 경우 결과 배열에 추가
           if (jobInfo) {
-            jobInfo.url = fullUrl; // 원본 URL 저장 (나중에 참조하기 위해)
+            jobInfo.url = fullUrl;
             pageJobs.push(jobInfo);
           }
         } catch (error) {
-          // 개별 채용공고 처리 중 오류 발생 시 로깅 후 계속 진행
-          // 하나의 채용공고에서 오류가 발생해도 전체 프로세스는 계속 진행
           console.error(`채용공고 정보 추출 오류: ${error}`);
-          continue; // 다음 링크로 진행 (현재 반복을 건너뜀)
+          continue;
         }
       }
+      
+      // Update the consecutive duplicates counter
+      if (duplicatesInThisPage > 0 && pageJobs.length === 0) {
+        consecutiveDuplicates++;
+        
+        // If we have too many pages with only duplicates, stop scraping
+        if (consecutiveDuplicates >= 3) {
+          console.log(`\n⚠️ 연속 ${consecutiveDuplicates}개 페이지에서 중복된 채용공고만 발견되었습니다.`);
+          continueScrapping = false;
+        }
+      } else {
+        // Reset the counter if we found new jobs
+        consecutiveDuplicates = 0;
+      }
+      
     } catch (error) {
-      // 페이지 전체 처리 중 오류 발생 시 로깅
       console.error(`페이지 ${pageNum} 처리 중 오류 발생: ${error}`);
     }
     
-    return pageJobs; // 수집된 채용정보 반환
+    return pageJobs;
   }
-
+  
   /**
    * 사람인 특정 페이지의 URL을 생성하는 메서드
    * 
@@ -379,7 +462,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         const columnInfo = extractInfoFromColumns();
         
         // 회사명 추출 (여러 선택자 시도 - 첫 번째로 발견되는 요소 사용)
-        const companyName = getTextContent(".company_name") || getTextContent(".corp_name");
+        const companyName = getTextContent(".title_inner .company") || getTextContent(".company_name") || getTextContent(".corp_name");
         
         // 채용 제목 추출 (여러 선택자 시도 - 첫 번째로 발견되는 요소 사용)
         const jobTitle = getTextContent(".job_tit") || getTextContent("h1.tit_job");
@@ -414,6 +497,35 @@ export default class ScraperControlService extends ScraperServiceABC {
         };
       });
 
+      // 추출된 정보가 있으면 콘솔에 출력하고 DB에 저장
+      if (jobInfo) {
+        // DB에 채용정보 저장 (scraped_at, is_applied 필드 추가)
+        await CompanyRecruitmentTable.create({
+          company_name: jobInfo.companyName,
+          job_title: jobInfo.jobTitle,
+          job_location: jobInfo.jobLocation,
+          job_type: jobInfo.jobType,
+          job_salary: jobInfo.jobSalary,
+          deadline: jobInfo.deadline,
+          job_url: url,
+          scraped_at: new Date(), // 현재 시간으로 데이터 수집 일시 설정
+          is_applied: false       // 초기 지원 여부는 false로 설정
+        });
+
+        console.log(`\n✅ 채용정보 추출 성공`);
+        console.log(`------------------------------`);
+        console.log(`🏢 회사명: ${jobInfo.companyName}`);
+        console.log(`📝 채용제목: ${jobInfo.jobTitle}`);
+        console.log(`📍 근무지역: ${jobInfo.jobLocation}`);
+        console.log(`👨‍💼 경력조건: ${jobInfo.jobType}`);
+        console.log(`💰 급여정보: ${jobInfo.jobSalary}`);
+        console.log(`⏰ 마감일자: ${jobInfo.deadline}`);
+        console.log(`🔗 원본URL: ${url}`);
+        console.log(`------------------------------\n`);
+      } else {
+        console.log(`❌ 채용정보 추출 실패: 정보를 찾을 수 없습니다.`);
+      }
+
       // 추출된 정보가 있으면 콘솔에 출력
       if (jobInfo) {
         console.log(`\n✅ 채용정보 추출 성공`);
@@ -447,7 +559,6 @@ export default class ScraperControlService extends ScraperServiceABC {
     console.log(`📊 스크래핑 결과 요약`);
     console.log(`=================================`);
     console.log(`📋 총 수집된 채용공고 수: ${jobs.length}개`);
-    
     // 회사별 채용공고 수 집계
     const companyCounts: Record<string, number> = {};
     jobs.forEach(job => {

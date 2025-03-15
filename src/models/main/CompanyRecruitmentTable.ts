@@ -3,9 +3,9 @@ import { Table, AllowNull, Column, DataType } from "sequelize-typescript";
 
 @Table({
   freezeTableName: true,
-  tableName: "auto_apply_table",
+  tableName: "company_recruitment",
 })
-export default class AutoApplyTable extends ModelABC {
+export default class CompanyRecruitmentTable extends ModelABC {
   @AllowNull(false)
   @Column({
     type: DataType.STRING,
@@ -62,7 +62,13 @@ export default class AutoApplyTable extends ModelABC {
     defaultValue: DataType.NOW,
   })
   scraped_at!: Date;
-
+  @AllowNull(true)
+  @Column({
+    type: DataType.BOOLEAN,
+    comment: "GPT 체크 여부",
+    defaultValue: false,
+  })
+  is_gpt_checked!: boolean;
   @AllowNull(true)
   @Column({
     type: DataType.BOOLEAN,
