@@ -1,165 +1,147 @@
-# 3주차 스터디 내용 정리 (코드 리뷰 요청본)
+# 4주차 스터디 내용 정리
 
-## 1. 채용공고 상세 페이지 세부 정보 추출 기법
-ㄴ
-`ScraperControlService` 클래스의 `extractJobDetails` 메소드는 웹 스크래핑의 핵심 기능을 담당합니다. 이 메소드는 Puppeteer를 활용하여 채용공고 상세 페이지에서 구조화된 정보를 추출합니다.
+## 1. 데이터베이스 연동 및 스마트 크롤링 기능 구현
+
+`ScraperControlService`가 크롤링한 데이터를 효율적으로 관리하기 위해 데이터베이스 저장 기능을 추가하고, 더 스마트한 크롤링 로직을 구현했습니다.
+
+### 1.1 채용정보 데이터베이스 저장 구현
 
 ```typescript
-private async extractJobDetails(page: Page, url: string, waitTime: number): Promise<JobInfo | null> {
-  try {
-    // 로깅 및 페이지 이동
-    console.log(`\n=============================`);
-    console.log(`🔍 채용공고 상세 페이지 처리 시작: ${url}`);
-    
-    await page.goto(url, { waitUntil: "networkidle2" });
-    await sleep(waitTime);
+// 추출된 채용정보를 데이터베이스에 저장하는 코드
+if (jobInfo) {
+  // DB에 채용정보 저장 (scraped_at, is_applied 필드 추가)
+  await CompanyRecruitmentTable.create({
+    company_name: jobInfo.companyName,
+    job_title: jobInfo.jobTitle,
+    job_location: jobInfo.jobLocation,
+    job_type: jobInfo.jobType,
+    job_salary: jobInfo.jobSalary,
+    deadline: jobInfo.deadline,
+    job_url: url,
+    scraped_at: new Date(), // 현재 시간으로 데이터 수집 일시 설정
+    is_applied: false       // 초기 지원 여부는 false로 설정
+  });
+  
+  console.log(`\n✅ 채용정보 추출 성공`);
+  // 로깅 코드...
+}
+```
 
-    // 페이지 내 자바스크립트 실행하여 채용정보 추출
-    const jobInfo = await page.evaluate(() => {
-      // DOM 탐색 및 데이터 추출 로직
-      // ...
-    });
+**핵심 구현 요소:**
 
-    // 결과 로깅 및 반환
-    if (jobInfo) {
-      console.log(`\n✅ 채용정보 추출 성공`);
-      console.log(`🏢 회사명: ${jobInfo.companyName}`);
-      // ...
-    }
+1. **Sequelize ORM 활용**
+   - TypeScript와 Sequelize를 활용하여 SQL 쿼리 없이 객체 형태로 데이터베이스 조작
+   - `await` 키워드로 비동기 데이터베이스 작업 완료 대기
+   - `create()` 메소드를 사용해 새 레코드 생성
 
-    return jobInfo;
-  } catch (error) {
-    console.error(`❌ ${url}에서 채용정보 추출 실패: ${error}`);
-    return null;
+2. **수집 메타데이터 저장**
+   - `scraped_at`: 데이터 수집 시점을 저장하여 크롤링 이력 관리
+   - `is_applied`, `is_gpt_checked`: 후속 처리 상태 추적을 위한 플래그
+
+### 1.2 중복 방지 스마트 크롤링 구현
+
+불필요한 리소스 낭비를 줄이기 위해 이미 수집된 채용정보는 건너뛰고, 중복이 많이 발견될 경우 크롤링을 자동으로 중단하는 로직을 구현했습니다.
+
+```typescript
+// URL을 기준으로 중복 체크 및 스크래핑 중단 로직
+const existingJob = await CompanyRecruitmentTable.findOne({
+  where: { job_url: fullUrl }
+});
+
+if (existingJob) {
+  console.log(`🔄 이미 수집된 채용공고입니다: ${fullUrl}`);
+  duplicatesInThisPage++;
+  
+  // 페이지 내 중복이 5개 이상이면 해당 페이지 스크래핑 중단
+  if (duplicatesInThisPage >= 5) {
+    console.log(`\n⚠️ 이 페이지에서 5개 이상의 중복된 채용공고가 발견되었습니다.`);
+    continueScrapping = false;
+    break;
   }
+  
+  continue; // 해당 채용공고 건너뛰기
 }
 ```
 
-**핵심 기술 및 장점:**
+**스마트 크롤링 전략:**
 
-1. **계층형 DOM 탐색 전략**
-   - `.wrap_jv_cont` 컨테이너를 찾아 해당 범위 내에서만 정보를 추출함으로써 성능 최적화
-   - CSS 선택자 기반 접근으로 DOM 구조 변화에 유연하게 대응
+1. **URL 기반 중복 탐지**
+   - 데이터베이스에 이미 존재하는 URL인지 확인하여 중복 수집 방지
+   - 채용공고 URL을 유니크 식별자로 활용
 
-2. **다중 선택자 대체 전략**
-   ```typescript
-   const companyName = getTextContent(".company_name") || getTextContent(".corp_name");
-   const jobTitle = getTextContent(".job_tit") || getTextContent("h1.tit_job");
-   ```
-   - 여러 가능한 선택자를 순차적으로 시도하여 정보 추출 성공률 향상
-   - 사이트 리디자인이나 구조 변경에 강인한 적응력 제공
+2. **자동 중단 임계값 설정**
+   - 한 페이지에서 5개 이상 중복 발견 시 해당 페이지 크롤링 중단
+   - 연속 3개 페이지에서 새로운 채용공고가 없을 경우 전체 크롤링 중단
+   - 중복 패턴 감지를 통한 효율적 리소스 관리
 
-3. **정규식 기반 정보 추출**
-   ```typescript
-   const extractDeadline = (): string => {
-     // 텍스트에서 날짜 패턴 찾기
-     const datePattern = /\d{4}[-./]\d{1,2}[-./]\d{1,2}/g;
-     const timePattern = /\d{1,2}:\d{2}/g;
-     // ...
-   };
-   ```
-   - 비정형화된 텍스트에서 날짜, 시간과 같은 특정 패턴 정보를 효율적으로 추출
-   - 다양한 형식(YYYY-MM-DD, YYYY.MM.DD 등)을 처리할 수 있는 유연성
+3. **진행 상황 실시간 모니터링**
+   - 이모지와 구조화된 로깅으로 크롤링 진행 상황 가시화
+   - 중복 발견, 새 데이터 추가 등 주요 이벤트에 대한 상세 로깅
 
-4. **가시성 높은 로깅 시스템**
-   - 이모지와 구분선을 활용한 직관적 콘솔 로그
-   - 각 단계별 처리 상태와 결과를 명확히 표시하여 디버깅 효율 향상
+## 2. OpenAI 어시스턴트와 벡터 스토어 활용 이력서 필터링
 
-**개선 가능한 점:**
+채용공고 데이터를 OpenAI의 벡터 스토어에 저장하고, 맞춤형 어시스턴트를 활용하여 이력서 필터링 프로세스를 자동화하는 방법을 구현했습니다.
 
-1. **캐싱 메커니즘 도입**
-   - 동일 URL에 대한 반복 요청을 방지하는 캐싱 레이어 추가
-   - 이미 방문한 URL 정보를 메모리 또는 외부 저장소에 캐싱하여 성능 향상
+### 2.1 OpenAI 어시스턴트 설정 및 지시어 작성
 
-2. **적응형 대기 시간 알고리즘**
-   - 현재는 고정된 `waitTime`을 사용하지만, 페이지 로드 상태에 따라 동적으로 대기 시간 조절
-   - 네트워크 상태, 페이지 복잡성에 따라 자동 조절되는 대기 시간 구현
+OpenAI Playground Assistants를 활용하여 다음과 같은 작업을 수행했습니다:
 
-3. **에러 복구 메커니즘 강화**
-   - 특정 실패 패턴에 대한 재시도 로직 구현
-   - 임시적인 네트워크 이슈나 서버 부하로 인한 실패에 대응하는 지수 백오프 전략 적용
+1. **시스템 지시어 설정**
+   - 어시스턴트의 역할 정의: 채용공고와 이력서 매칭 분석가
+   - 입력값(채용공고와 이력서)과 출력값(적합 여부 판단) 명확화
+   - 판단 기준과 응답 형식 구체화
 
-## 2. Sequelize-TypeScript ORM을 활용한 데이터 모델링
+2. **벡터 스토어 연동**
+   - 채용데이터 벡터화를 통한 효율적 검색 및 분석 지원
+   - File Search 도구 활성화 및 벡터 스토어 연결
+   - 채용공고 데이터셋 업로드
 
-`AutoApplyTable` 클래스는 Sequelize-TypeScript를 사용하여 채용공고 정보를 저장하기 위한 데이터 모델을 정의합니다.
+### 2.2 데이터베이스 모델 확장
+
+GPT 분석 결과와 지원 상태를 추적하기 위해 데이터 모델을 확장했습니다:
 
 ```typescript
-@Table({
-  freezeTableName: true,
-  tableName: "auto_apply_table",
+@AllowNull(true)
+@Column({
+  type: DataType.BOOLEAN,
+  comment: "GPT 체크 여부",
+  defaultValue: false,
 })
-export default class AutoApplyTable extends ModelABC {
-  @AllowNull(false)
-  @Column({
-    type: DataType.STRING,
-    comment: "회사명",
-  })
-  company_name!: string;
+is_gpt_checked!: boolean;
 
-  // 추가 필드 정의...
-
-  @AllowNull(true)
-  @Column({
-    type: DataType.BOOLEAN,
-    comment: "지원 여부",
-    defaultValue: false,
-  })
-  is_applied!: boolean;
-}
+@AllowNull(true)
+@Column({
+  type: DataType.BOOLEAN,
+  comment: "지원 여부",
+  defaultValue: false,
+})
+is_applied!: boolean;
 ```
 
-**구현 특징 및 장점:**
+**데이터 모델 개선점:**
 
-1. **데코레이터 기반 스키마 정의**
-   - TypeScript 데코레이터를 활용해 직관적이고 선언적인 테이블/컬럼 정의
-   - 코드와 데이터베이스 스키마 간의 일관성 보장
+1. **처리 상태 추적**
+   - `is_gpt_checked`: 리소스 절약을 위해 이미 분석된 채용공고 구분
+   - `is_applied`: 향후 자동 지원 프로세스를 위한 지원 상태 추적
 
-2. **강력한 타입 안전성**
-   - TypeScript의 타입 시스템을 활용하여 컴파일 타임에 데이터 타입 오류 감지
-   - 런타임 타입 불일치 오류 방지 및 개발 생산성 향상
+2. **데이터베이스 스키마 관리**
+   - 기존 테이블에 새로운 컬럼 추가
+   - 기본값 설정으로 기존 데이터와의 호환성 유지
 
-3. **메타데이터 주석**
-   ```typescript
-   @Column({
-     type: DataType.STRING,
-     comment: "채용 공고 제목",
-   })
-   ```
-   - 각 필드에 comment를 통한 명확한 설명 제공
-   - 데이터베이스 스키마 자체에 메타데이터가 포함되어 문서화 효과
+## 3. 다음 단계 및 향후 계획
 
-4. **상속을 통한 기본 기능 재사용**
-   ```typescript
-   export default class AutoApplyTable extends ModelABC {
-     // ...
-   }
-   ```
-   - 공통 필드(ID, 생성일, 수정일 등)와 메소드를 ModelABC에서 상속받아 코드 중복 제거
-   - 일관된 모델 구조 유지 및 개발 생산성 향상
+현재까지의 구현을 기반으로 다음과 같은 기능을 추가로 개발할 예정입니다:
 
-**확장 제안:**
+1. **시점 설정 기능**
+   - 마지막 크롤링 시점을 기준으로 증분식 데이터 수집
+   - 불필요한 중복 스크래핑 최소화
 
-1. **인덱싱 전략 개선**
-   - 자주 검색되는 필드(`company_name`, `job_title`)에 대한 인덱스 추가
-   - 복합 인덱스 생성으로 복잡한 쿼리 성능 최적화
+2. **크론 작업 자동화**
+   - 정기적인 채용정보 수집 자동화
+   - 스케줄링을 통한 효율적 리소스 활용
 
-2. **관계 정의 추가**
-   ```typescript
-   @HasMany(() => ApplyHistory)
-   apply_histories?: ApplyHistory[];
-   ```
-   - 지원 이력, 관심 공고 등 관련 모델과의 관계 정의
-   - 데이터 모델 간 명확한 관계 설정으로 복잡한 쿼리 단순화
+3. **이력서 자동 지원 시스템**
+   - GPT가 적합하다고 판단한 채용공고에 대한 자동 지원 프로세스 구현
+   - 맞춤형 이력서와 자기소개서 생성 및 제출
 
-3. **가상 필드 및 메소드 추가**
-   ```typescript
-   @Column(DataType.VIRTUAL)
-   get daysUntilDeadline(): number {
-     if (!this.deadline) return -1;
-     // 마감일까지 남은 일수 계산 로직
-   }
-   ```
-   - 비즈니스 로직을 모델에 캡슐화하여 재사용성 향상
-   - 마감임박 여부, 지원가능 상태 등 파생 정보 자동 계산
-
-이러한 웹 스크래핑 아키텍처와 ORM 모델링 접근법은 단순한 데이터 수집을 넘어, 견고하고 확장 가능한 시스템을 구축하는 데 기여합니다. 특히 타입 안전성과 모듈화된 설계는 장기적인 유지보수와 확장에 큰 이점을 제공합니다.
+이번 주 스터디를 통해 스크래핑, 데이터베이스 연동, 그리고 AI 기반 분석의 기초를 다졌으며, 앞으로 더욱 지능적이고 자동화된 채용 시스템으로 발전시켜 나갈 계획입니다.
