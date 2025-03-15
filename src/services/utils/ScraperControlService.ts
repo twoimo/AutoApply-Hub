@@ -15,23 +15,27 @@
  * 
  * 💻 사용 방법:
  * - ScraperControlService 인스턴스를 생성하고 openSaramin() 메서드를 호출하면 스크래핑이 시작됩니다.
+ *   (예시: const scraper = new ScraperControlService(); await scraper.openSaramin();)
  * - 시작 페이지, 종료 페이지, 헤드리스 모드, 대기 시간 등 다양한 설정을 제공할 수 있습니다.
+ *   (예시: await scraper.openSaramin({ startPage: 1, endPage: 5, headless: true });)
  * 
  * ✨ 초보자를 위한 팁:
- * - 클래스: 관련 기능들을 묶어놓은 '설계도'입니다.
- * - 인터페이스: 객체가 가져야 할 속성과 타입을 정의한 '명세서'입니다.
+ * - 클래스: 관련 기능들을 묶어놓은 '설계도'입니다. 붕어빵 틀로 생각하면 됩니다.
+ * - 인터페이스: 객체가 가져야 할 속성과 타입을 정의한 '명세서'입니다. 설계 도면이라고 생각하세요.
  * - 비동기(async/await): 시간이 걸리는 작업을 기다리는 동안 프로그램이 멈추지 않게 해주는 기술입니다.
+ *   (예: 웹페이지를 로딩하는 동안 다른 작업을 할 수 있게 해줍니다)
  */
 
 // 필요한 외부 라이브러리들을 가져옵니다.
 // import 구문: 다른 파일이나 라이브러리의 기능을 현재 파일에서 사용하기 위해 가져오는 문법입니다.
-import moment from "moment";                                 // 날짜와 시간을 쉽게 다루는 라이브러리
-import { ScraperServiceABC, sleep } from "@qillie/wheel-micro-service"; // 기본 스크래퍼 서비스와 대기 기능
-import _ from "lodash";                                      // 유틸리티 함수 모음 라이브러리
-import sequelize from "sequelize";                           // 데이터베이스 작업을 위한 ORM 라이브러리
-import axios from "axios";                                   // HTTP 요청을 보내기 위한 라이브러리
-import puppeteer from "puppeteer";                           // 웹 브라우저 자동화 라이브러리
-import { Browser, Page } from "puppeteer";                   // 타입스크립트용 puppeteer 타입 정의
+// 마치 요리에 필요한 재료를 준비하는 과정이라고 생각하면 됩니다.
+import moment from "moment";                                 // 날짜와 시간을 쉽게 다루는 라이브러리 (예: '2023-05-15'같은 날짜 계산)
+import { ScraperServiceABC, sleep } from "@qillie/wheel-micro-service"; // 기본 스크래퍼 서비스와 대기 기능 (프로그램이 잠시 멈추게 하는 기능)
+import _ from "lodash";                                      // 유틸리티 함수 모음 라이브러리 (배열, 객체 등을 쉽게 다루는 도구들)
+import sequelize from "sequelize";                           // 데이터베이스 작업을 위한 ORM 라이브러리 (SQL 없이 데이터베이스 사용)
+import axios from "axios";                                   // HTTP 요청을 보내기 위한 라이브러리 (웹페이지 내용을 가져오는 도구)
+import puppeteer from "puppeteer";                           // 웹 브라우저 자동화 라이브러리 (로봇이 브라우저를 조작한다고 생각하세요)
+import { Browser, Page } from "puppeteer";                   // 타입스크립트용 puppeteer 타입 정의 (컴퓨터가 이해할 수 있는 설명서)
 import CompanyRecruitmentTable from "../../models/main/CompanyRecruitmentTable";
 
 /**
@@ -45,16 +49,20 @@ import CompanyRecruitmentTable from "../../models/main/CompanyRecruitmentTable";
  * 💡 인터페이스란? 
  * - 객체가 어떤 속성과 타입을 가져야 하는지 정의하는 '설계도'입니다.
  * - 실제 데이터는 포함하지 않고 구조만 정의합니다.
+ * - 집을 짓기 전에 '이 집은 방이 3개, 화장실이 2개 필요해'라고 계획하는 것과 비슷합니다.
  * - TypeScript에서 코드의 안정성을 높이고 개발 중 오류를 줄이는 데 도움을 줍니다.
+ * - 예를 들어, 회사명을 숫자로 입력하면 오류를 표시해 실수를 방지합니다.
  */
 interface JobInfo {
-  companyName: string;  // 회사명 (문자열 타입)
-  jobTitle: string;     // 채용 제목 (문자열 타입)
-  jobLocation: string;  // 근무지 위치 (문자열 타입)
-  jobType: string;      // 채용 형태 (경력/신입 등) (문자열 타입)
-  jobSalary: string;    // 급여 정보 (문자열 타입)
-  deadline: string;     // 지원 마감일 (문자열 타입)
-  url?: string;         // 원본 채용공고 URL (선택적 속성, ?는 이 속성이 없을 수도 있다는 의미)
+  companyName: string;  // 회사명 (문자열 타입) - 예: "삼성전자", "네이버" 등
+  jobTitle: string;     // 채용 제목 (문자열 타입) - 예: "웹 개발자 채용", "프론트엔드 신입 모집" 등
+  jobLocation: string;  // 근무지 위치 (문자열 타입) - 예: "서울시 강남구", "경기도 성남시" 등
+  jobType: string;      // 채용 형태 (문자열 타입) - 예: "신입", "경력 3년 이상", "인턴" 등
+  jobSalary: string;    // 급여 정보 (문자열 타입) - 예: "3,000만원 이상", "회사 내규에 따름" 등
+  deadline: string;     // 지원 마감일 (문자열 타입) - 예: "2023-12-31", "상시채용" 등
+  url?: string;         // 원본 채용공고 URL (선택적 속성) - 예: "https://www.saramin.co.kr/job/12345"
+                        // '?'는 이 속성이 없을 수도 있다는 의미입니다 (필수가 아닌 선택사항)
+  companyType?: string; // 기업형태 (선택적 속성) - 예: "대기업", "중소기업", "스타트업" 등
 }
 
 /**
@@ -86,7 +94,7 @@ interface ScraperConfig {
  * - 이미 수집된 채용공고는 건너뛰어 효율적으로 스크래핑합니다.
  * 
  * 💡 클래스란? 
- * - 특정 객체를 생성하기 위한 템플릿이며, 속성(변수)과 메서드(함수)를 포함합니다.
+ * - 특정 객체를 생성하기 위한 템플릿이며, 속성(변수)와 메서드(함수)를 포함합니다.
  * - 비슷한 기능들을 하나로 묶어서 코드를 정리하고 재사용하기 쉽게 만듭니다.
  * 
  * 💡 extends ScraperServiceABC란? 
@@ -284,6 +292,7 @@ export default class ScraperControlService extends ScraperServiceABC {
           }
           
           // 새로운 공고만 처리
+          waitTime = Math.floor(Math.random() * 2001) + 4000
           const jobInfo = await this.extractJobDetails(page, fullUrl, waitTime);
           
           if (jobInfo) {
@@ -458,6 +467,36 @@ export default class ScraperControlService extends ScraperServiceABC {
           return result;  // 수집된 정보 객체 반환
         };
         
+        /**
+         * 기업정보 추출 함수
+         * 회사 정보 페이지에서 기업형태 등의 정보를 추출
+         * @returns - 기업형태 문자열
+         */
+        const extractCompanyType = (): string => {
+          // 기업형태 정보 찾기
+          const companyInfoArea = document.querySelector(".info_area");
+          if (!companyInfoArea) return "";
+          
+          // 모든 dl 요소를 찾아서 기업형태가 포함된 요소 검색
+          const dlElements = companyInfoArea.querySelectorAll("dl");
+          for (const dl of Array.from(dlElements)) {
+            const dt = dl.querySelector("dt");
+            if (dt && dt.textContent && dt.textContent.trim() === "기업형태") {
+              const dd = dl.querySelector("dd");
+              // title 속성에서 전체 기업형태 정보 가져오기 (생략 없는 전체 텍스트)
+              if (dd && dd.getAttribute("title")) {
+                return dd.getAttribute("title") || "";
+              }
+              // title 속성이 없으면 내부 텍스트 사용
+              else if (dd) {
+                return dd.textContent?.trim() || "";
+              }
+              return "";
+            }
+          }
+          return "";
+        };
+        
         // 모든 컬럼 정보 추출
         const columnInfo = extractInfoFromColumns();
         
@@ -506,6 +545,9 @@ export default class ScraperControlService extends ScraperServiceABC {
           }
         }
         
+        // 기업형태 정보 추출
+        const companyType = extractCompanyType();
+        
         // 추출한 정보를 객체로 구성하여 반환
         return {
           companyName,   // 회사명
@@ -513,7 +555,8 @@ export default class ScraperControlService extends ScraperServiceABC {
           jobLocation,   // 근무지
           jobType: columnInfo["경력"] || columnInfo["경력조건"] || "", // 경력 조건
           jobSalary,     // 급여 정보
-          deadline       // 마감일
+          deadline,      // 마감일
+          companyType    // 기업형태
         };
       });
 
@@ -528,6 +571,7 @@ export default class ScraperControlService extends ScraperServiceABC {
           job_salary: jobInfo.jobSalary,
           deadline: jobInfo.deadline,
           job_url: url,
+          company_type: jobInfo.companyType || "", // 기업형태 정보 저장
           scraped_at: new Date(), // 현재 시간으로 데이터 수집 일시 설정
           is_applied: false       // 초기 지원 여부는 false로 설정
         });
@@ -540,6 +584,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         console.log(`👨‍💼 경력조건: ${jobInfo.jobType}`);
         console.log(`💰 급여정보: ${jobInfo.jobSalary}`);
         console.log(`⏰ 마감일자: ${jobInfo.deadline}`);
+        console.log(`🏭 기업형태: ${jobInfo.companyType || "정보 없음"}`);
         console.log(`🔗 원본URL: ${url}`);
         console.log(`------------------------------\n`);
 
