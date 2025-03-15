@@ -105,7 +105,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     startPage: 2,       // 기본 시작 페이지는 2페이지 (첫 페이지를 건너뜀)
     endPage: 20,        // 기본 종료 페이지는 20페이지 (2~20페이지까지 스크랩)
     headless: false,    // 기본적으로 브라우저 UI 표시 (디버깅하기 쉽게)
-    waitTime: 2000      // 기본 대기 시간은 2초 (2000밀리초)
+    waitTime: Math.floor(Math.random() * 4001) + 2000      // 2~6초(2000~6000ms) 사이 랜덤 대기 시간
   };
 
   /**
@@ -240,36 +240,50 @@ export default class ScraperControlService extends ScraperServiceABC {
       const links = await this.extractJobLinks(page);
       console.log(`페이지 ${pageNum}: ${links.length}개의 채용공고를 발견했습니다`);
       
-      // Add duplicate counter for this page
-      let duplicatesInThisPage = 0;
-  
+      // 중복 확인을 위해 모든 URL을 먼저 확인
+      const urlsToCheck = links.map(link => `https://www.saramin.co.kr${link}`);
+      
+      // 데이터베이스에서 이미 존재하는 URL 목록 가져오기
+      const existingUrls = await CompanyRecruitmentTable.findAll({
+        attributes: ['job_url'],
+        where: {
+          job_url: {
+            [sequelize.Op.in]: urlsToCheck
+          }
+        }
+      }).then(results => results.map(result => result.getDataValue('job_url')));
+      
+      console.log(`${existingUrls.length}개의 중복된 채용공고가 발견되었습니다.`);
+      
+      // 중복 URL 개수 카운트
+      let duplicatesInThisPage = existingUrls.length;
+      
+      // 모든 URL이 중복이고 페이지에 채용공고가 5개 이상이면 스크래핑 중단 고려
+      if (duplicatesInThisPage >= 5 && duplicatesInThisPage === links.length) {
+        console.log(`\n⚠️ 모든 채용공고(${duplicatesInThisPage}개)가 이미 수집된 상태입니다.`);
+        consecutiveDuplicates++;
+        
+        if (consecutiveDuplicates >= 3) {
+          console.log(`\n⚠️ 연속 ${consecutiveDuplicates}개 페이지에서 중복된 채용공고만 발견되었습니다.`);
+          continueScrapping = false;
+          return pageJobs;
+        }
+      } else {
+        consecutiveDuplicates = 0;
+      }
+      
+      // 새로운 채용공고만 처리
       for (const link of links) {
         try {
           const fullUrl = `https://www.saramin.co.kr${link}`;
           
-          // Check if URL already exists in the database
-          const existingJob = await CompanyRecruitmentTable.findOne({
-            where: { job_url: fullUrl }
-          });
-          
-          if (existingJob) {
+          // 이미 수집된 URL인지 확인
+          if (existingUrls.includes(fullUrl)) {
             console.log(`🔄 이미 수집된 채용공고입니다: ${fullUrl}`);
-            duplicatesInThisPage++;
-            
-            // If we find too many consecutive duplicates, stop scraping
-            if (duplicatesInThisPage >= 5) {
-              console.log(`\n⚠️ 이 페이지에서 5개 이상의 중복된 채용공고가 발견되었습니다.`);
-              continueScrapping = false;
-              break;
-            }
-            
-            continue; // Skip this job and move to next
+            continue; // 중복된 URL은 건너뛰기
           }
           
-          // Reset duplicate counter since we found a new posting
-          duplicatesInThisPage = 0;
-          
-          // Process job as usual for non-duplicates
+          // 새로운 공고만 처리
           const jobInfo = await this.extractJobDetails(page, fullUrl, waitTime);
           
           if (jobInfo) {
@@ -280,20 +294,6 @@ export default class ScraperControlService extends ScraperServiceABC {
           console.error(`채용공고 정보 추출 오류: ${error}`);
           continue;
         }
-      }
-      
-      // Update the consecutive duplicates counter
-      if (duplicatesInThisPage > 0 && pageJobs.length === 0) {
-        consecutiveDuplicates++;
-        
-        // If we have too many pages with only duplicates, stop scraping
-        if (consecutiveDuplicates >= 3) {
-          console.log(`\n⚠️ 연속 ${consecutiveDuplicates}개 페이지에서 중복된 채용공고만 발견되었습니다.`);
-          continueScrapping = false;
-        }
-      } else {
-        // Reset the counter if we found new jobs
-        consecutiveDuplicates = 0;
       }
       
     } catch (error) {
@@ -480,10 +480,19 @@ export default class ScraperControlService extends ScraperServiceABC {
         // 급여 정보 추출 및 정리 (불필요한 부분 제거)
         let jobSalary = columnInfo["급여"] || columnInfo["급여조건"] || "";
         if (jobSalary) {
+          // 상세보기나 최저임금 텍스트 이전 부분만 사용
           jobSalary = jobSalary
-            .split("상세보기")[0] // "상세보기" 텍스트 이전 부분만 사용
-            .split("최저임금")[0] // "최저임금" 텍스트 이전 부분만 사용
-            .trim(); // 앞뒤 공백 제거
+            .split("상세보기")[0]
+            .split("최저임금")[0]
+            .trim();
+          
+          // "(주 16시간)" 이후의 "근무형태" 및 기타 텍스트 제거
+          const hourPattern = /\(주 \d+시간\)/;
+          const match = jobSalary.match(hourPattern);
+          if (match) {
+            const index = jobSalary.indexOf(match[0]) + match[0].length;
+            jobSalary = jobSalary.substring(0, index).trim();
+          }
         }
         
         // 추출한 정보를 객체로 구성하여 반환
