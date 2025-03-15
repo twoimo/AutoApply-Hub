@@ -531,27 +531,13 @@ export default class ScraperControlService extends ScraperServiceABC {
         console.log(`⏰ 마감일자: ${jobInfo.deadline}`);
         console.log(`🔗 원본URL: ${url}`);
         console.log(`------------------------------\n`);
-      } else {
-        console.log(`❌ 채용정보 추출 실패: 정보를 찾을 수 없습니다.`);
-      }
 
-      // 추출된 정보가 있으면 콘솔에 출력
-      if (jobInfo) {
-        console.log(`\n✅ 채용정보 추출 성공`);
-        console.log(`------------------------------`);
-        console.log(`🏢 회사명: ${jobInfo.companyName}`);
-        console.log(`📝 채용제목: ${jobInfo.jobTitle}`);
-        console.log(`📍 근무지역: ${jobInfo.jobLocation}`);
-        console.log(`👨‍💼 경력조건: ${jobInfo.jobType}`);
-        console.log(`💰 급여정보: ${jobInfo.jobSalary}`);
-        console.log(`⏰ 마감일자: ${jobInfo.deadline}`);
-        console.log(`🔗 원본URL: ${url}`);
-        console.log(`------------------------------\n`);
       } else {
         console.log(`❌ 채용정보 추출 실패: 정보를 찾을 수 없습니다.`);
       }
 
       return jobInfo;
+      
     } catch (error) {
       // 채용정보 추출 실패 시 로깅 및 null 반환
       console.error(`❌ ${url}에서 채용정보 추출 실패: ${error}`);
