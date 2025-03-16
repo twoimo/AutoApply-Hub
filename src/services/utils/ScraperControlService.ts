@@ -37,6 +37,14 @@ import axios from "axios";                                   // HTTP 요청을 �
 import puppeteer from "puppeteer";                           // 웹 브라우저 자동화 라이브러리 (로봇이 브라우저를 조작한다고 생각하세요)
 import { Browser, Page } from "puppeteer";                   // 타입스크립트용 puppeteer 타입 정의 (컴퓨터가 이해할 수 있는 설명서)
 import CompanyRecruitmentTable from "../../models/main/CompanyRecruitmentTable";
+import { Mistral } from '@mistralai/mistralai';
+import fs from 'fs';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import dotenv from 'dotenv';
+
+// 환경변수 로드
+dotenv.config();
 
 /**
  * 채용 공고 정보 인터페이스
@@ -64,6 +72,8 @@ interface JobInfo {
   url?: string;         // 원본 채용공고 URL (선택적 속성) - 예: "https://www.saramin.co.kr/job/12345"
                         // '?'는 이 속성이 없을 수도 있다는 의미입니다 (필수가 아닌 선택사항)
   companyType?: string; // 기업형태 (선택적 속성) - 예: "대기업", "중소기업", "스타트업" 등
+  jobDescription?: string; // 상세 채용 내용
+  descriptionType?: string; // 상세 내용 추출 방식 (text/ocr)
 }
 
 /**
@@ -116,6 +126,25 @@ export default class ScraperControlService extends ScraperServiceABC {
     headless: false,    // 기본적으로 브라우저 UI 표시 (디버깅하기 쉽게)
     waitTime: Math.floor(Math.random() * 2001) + 4000    // 4~6초(4000~6000ms) 사이 랜덤 대기 시간
   };
+
+  // Mistral AI 클라이언트 초기화
+  private mistralClient: Mistral | null = null;
+
+  // 생성자 메서드 추가 - Mistral API 클라이언트 초기화
+  constructor() {
+    // 부모 클래스 생성자에게 빈 배열 전달
+    super([]);
+    const apiKey = process.env.MISTRAL_API_KEY || 'cQPE5USa9KbRebszI0SSPMN54gvQXy53'; // 환경변수나 기본값 사용
+    if (apiKey) {
+      try {
+        this.mistralClient = new Mistral({ apiKey });
+        console.log('✅ Mistral AI API 클라이언트가 초기화되었습니다.');
+      } catch (error) {
+        console.error('❌ Mistral AI API 클라이언트 초기화 실패:', error);
+        this.mistralClient = null;
+      }
+    }
+  }
 
   /**
    * 사람인 웹사이트의 채용정보를 스크래핑하는 메서드
@@ -252,15 +281,8 @@ export default class ScraperControlService extends ScraperServiceABC {
       // 중복 확인을 위해 모든 URL을 먼저 확인
       const urlsToCheck = links.map(link => `https://www.saramin.co.kr${link}`);
       
-      // 데이터베이스에서 이미 존재하는 URL 목록 가져오기
-      const existingUrls = await CompanyRecruitmentTable.findAll({
-        attributes: ['job_url'],
-        where: {
-          job_url: {
-            [sequelize.Op.in]: urlsToCheck
-          }
-        }
-      }).then(results => results.map(result => result.getDataValue('job_url')));
+      // 최적화된 방식으로 기존 URL 확인
+      const existingUrls = await this.checkExistingUrls(urlsToCheck);
       
       console.log(`${existingUrls.length}개의 중복된 채용공고가 발견되었습니다.`);
       
@@ -281,20 +303,15 @@ export default class ScraperControlService extends ScraperServiceABC {
         consecutiveDuplicates = 0;
       }
       
-      // 새로운 채용공고만 처리
-      for (const link of links) {
+      // 새로운 URL만 필터링
+      const newUrls = urlsToCheck.filter(url => !existingUrls.includes(url));
+      
+      // 각 새로운 URL에 대해 스크래핑 작업 수행
+      for (const fullUrl of newUrls) {
         try {
-          const fullUrl = `https://www.saramin.co.kr${link}`;
-          
-          // 이미 수집된 URL인지 확인
-          if (existingUrls.includes(fullUrl)) {
-            console.log(`🔄 이미 수집된 채용공고입니다: ${fullUrl}`);
-            continue; // 중복된 URL은 건너뛰기
-          }
-          
-          // 새로운 공고만 처리
-          waitTime = Math.floor(Math.random() * 2001) + 4000
-          const jobInfo = await this.extractJobDetails(page, fullUrl, waitTime);
+          // 랜덤 대기 시간 설정 (과부하 방지 및 차단 회피)
+          const randomWaitTime = Math.floor(Math.random() * 2001) + 4000;
+          const jobInfo = await this.extractJobDetails(page, fullUrl, randomWaitTime);
           
           if (jobInfo) {
             jobInfo.url = fullUrl;
@@ -312,7 +329,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     
     return pageJobs;
   }
-  
+
   /**
    * 사람인 특정 페이지의 URL을 생성하는 메서드
    * 
@@ -568,13 +585,26 @@ export default class ScraperControlService extends ScraperServiceABC {
           jobSalary,       // 급여 정보
           deadline,        // 마감일
           employmentType,  // 근무형태 (정규직, 계약직 등)
-          companyType      // 기업형태
+          companyType,     // 기업형태
+          jobDescription: "",  // 초기값으로 빈 문자열
+          descriptionType: ""  // 초기값으로 빈 문자열
         };
       });
 
-      // 추출된 정보가 있으면 콘솔에 출력하고 DB에 저장
+      // 상세 채용 내용 추출 (추가된 부분)
       if (jobInfo) {
-        // DB에 채용정보 저장 (scraped_at, is_applied 필드 추가)
+        // 상세 내용 추출 시도
+        const jobDescriptionResult = await this.extractJobDescription(page);
+        
+        if (jobDescriptionResult) {
+          jobInfo.jobDescription = jobDescriptionResult.content;
+          jobInfo.descriptionType = jobDescriptionResult.type;
+          console.log(`📝 상세 채용 내용 추출 성공: ${jobDescriptionResult.type} 방식`);
+        } else {
+          console.log(`⚠️ 상세 채용 내용을 찾을 수 없습니다.`);
+        }
+
+        // DB에 채용정보 저장
         await CompanyRecruitmentTable.create({
           company_name: jobInfo.companyName,
           job_title: jobInfo.jobTitle,
@@ -582,13 +612,16 @@ export default class ScraperControlService extends ScraperServiceABC {
           job_type: jobInfo.jobType,
           job_salary: jobInfo.jobSalary,
           deadline: jobInfo.deadline,
-          employment_type: jobInfo.employmentType || "", // 근무형태 정보 저장
+          employment_type: jobInfo.employmentType || "",
           job_url: url,
-          company_type: jobInfo.companyType || "", // 기업형태 정보 저장
-          scraped_at: new Date(), // 현재 시간으로 데이터 수집 일시 설정
-          is_applied: false       // 초기 지원 여부는 false로 설정
+          company_type: jobInfo.companyType || "",
+          job_description: jobInfo.jobDescription || "", // 상세 내용 저장
+          description_type: jobInfo.descriptionType || "text", // 추출 방식 저장
+          scraped_at: new Date(),
+          is_applied: false
         });
 
+        // 콘솔 출력 시 상세 내용 정보 추가
         console.log(`\n✅ 채용정보 추출 성공`);
         console.log(`------------------------------`);
         console.log(`🏢 회사명: ${jobInfo.companyName}`);
@@ -600,6 +633,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         console.log(`⏰ 마감일자: ${jobInfo.deadline}`);
         console.log(`🏭 기업형태: ${jobInfo.companyType || "정보 없음"}`);
         console.log(`🔗 원본URL: ${url}`);
+        console.log(`📄 상세내용: ${jobInfo.jobDescription ? '추출 성공' : '없음'} (${jobInfo.descriptionType || 'N/A'})`);
         console.log(`------------------------------\n`);
 
       } else {
@@ -612,6 +646,257 @@ export default class ScraperControlService extends ScraperServiceABC {
       // 채용정보 추출 실패 시 로깅 및 null 반환
       console.error(`❌ ${url}에서 채용정보 추출 실패: ${error}`);
       return null;
+    }
+  }
+
+  /**
+   * 채용 공고 상세 내용을 추출하는 메서드
+   * 텍스트 또는 이미지에서 OCR을 통해 내용을 추출
+   */
+  private async extractJobDescription(page: Page): Promise<{ content: string; type: string } | null> {
+    try {
+      // 상세 요강 섹션 존재 여부 확인
+      const hasDetailSection = await page.evaluate(() => {
+        return document.querySelector('.jv_cont.jv_detail') !== null;
+      });
+
+      if (!hasDetailSection) {
+        console.log('📢 상세 요강 섹션이 존재하지 않습니다.');
+        return null;
+      }
+
+      // iframe이 있는지 확인
+      const hasIframe = await page.evaluate(() => {
+        const detailSection = document.querySelector('.jv_cont.jv_detail');
+        return detailSection?.querySelector('iframe') !== null;
+      });
+
+      // iframe이 있다면 iframe 내용 처리
+      if (hasIframe) {
+        // iframe URL 추출
+        const iframeSrc = await page.evaluate(() => {
+          const iframe = document.querySelector('.jv_cont.jv_detail iframe');
+          return iframe?.getAttribute('src') || '';
+        });
+        
+        if (iframeSrc) {
+          // iframe URL이 상대 경로인 경우 절대 경로로 변환
+          const fullIframeSrc = iframeSrc.startsWith('http') ? 
+            iframeSrc : `https://www.saramin.co.kr${iframeSrc}`;
+          
+          // iframe 페이지로 이동
+          const iframePage = await page.browser().newPage();
+          await iframePage.goto(fullIframeSrc, { waitUntil: 'networkidle2' });
+          await sleep(2000); // iframe 로딩 대기
+          
+          try {
+            // iframe 내용이 이미지를 포함하는지 확인
+            const isImageContent = await iframePage.evaluate(() => {
+              // 주요 이미지 요소
+              const imageElements = document.querySelectorAll('img[src*=".jpg"], img[src*=".jpeg"], img[src*=".png"]');
+              
+              // 이미지가 하나라도 있으면 OCR 처리를 사용
+              return imageElements.length > 0;
+            });
+            
+            if (isImageContent) {
+              // 이미지가 포함된 콘텐츠는 OCR 사용
+              console.log('🖼️ 이미지 포함 채용 공고 감지: OCR 처리 시작');
+              
+              // OCR 처리 수행
+              const result = await this.processOCR(iframePage);
+              if (result) {
+                await iframePage.close();
+                return result;
+              }
+            }
+            
+            // 이미지가 없거나 OCR 처리 실패 시 일반 텍스트 추출
+            const textContent = await iframePage.evaluate(() => {
+              const contentElement = document.querySelector('body');
+              return contentElement?.innerText || '';
+            });
+            
+            await iframePage.close();
+            return {
+              content: textContent,
+              type: 'text'
+            };
+          } catch (error) {
+            console.error('🔴 iframe 내용 처리 중 오류:', error);
+            await iframePage.close();
+          }
+        }
+      }
+      
+      // iframe이 없는 경우 직접 내용 추출
+      const directContent = await page.evaluate(() => {
+        const detailSection = document.querySelector('.jv_cont.jv_detail');
+        return detailSection?.textContent?.trim() || '';
+      });
+      
+      return {
+        content: directContent,
+        type: 'text'
+      };
+    } catch (error) {
+      console.error('🔴 상세 내용 추출 중 오류 발생:', error);
+      return null;
+    }
+  }
+
+  /**
+   * OCR을 사용하여 이미지에서 텍스트를 추출하는 공통 메서드
+   * @param page - 이미지가 포함된 페이지
+   * @returns OCR 결과 객체 또는 null
+   */
+  private async processOCR(page: Page): Promise<{ content: string; type: string } | null> {
+    try {
+      // 페이지에서 이미지 URL 추출
+      const imageUrls = await page.evaluate(() => {
+        const images = document.querySelectorAll('img[src*=".jpg"], img[src*=".jpeg"], img[src*=".png"]');
+        return Array.from(images).map(img => {
+          const src = img.getAttribute('src') || '';
+          // 이미 절대 URL인지 확인하고, 상대 경로는 절대 경로로 변환
+          if (src.startsWith('http')) {
+            return src;
+          } else if (src.startsWith('//')) {
+            return `https:${src}`;
+          } else if (src.startsWith('/')) {
+            return `https://www.saramin.co.kr${src}`;
+          } else {
+            // 현재 페이지 기준 상대 경로 처리
+            const baseUrl = window.location.origin;
+            const path = window.location.pathname.split('/').slice(0, -1).join('/') + '/';
+            return `${baseUrl}${path}${src}`;
+          }
+        }).filter(url => url && url.length > 0); // 빈 URL 필터링
+      });
+
+      // 이미지가 없는 경우
+      if (!imageUrls.length) {
+        console.log('❌ 페이지에서 처리할 이미지를 찾을 수 없습니다.');
+        
+        // 대안으로 스크린샷 촬영하여 처리
+        console.log('📷 전체 페이지 스크린샷으로 대체하여 OCR 처리합니다.');
+        const tempDir = path.join(process.cwd(), 'temp');
+        const screenshotPath = path.join(tempDir, `${uuidv4()}.png`);
+        
+        // temp 디렉토리가 없으면 생성
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir);
+        }
+        
+        // 스크린샷 촬영
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        
+        try {
+          // 이미지를 base64로 변환
+          const imageBuffer = fs.readFileSync(screenshotPath);
+          const base64Image = imageBuffer.toString('base64');
+          const dataUrl = `data:image/png;base64,${base64Image}`;
+          
+          const ocrResult = await this.processImageWithOCR(dataUrl);
+          return {
+            content: ocrResult,
+            type: 'ocr'
+          };
+        } finally {
+          // 스크린샷 파일 정리
+          if (fs.existsSync(screenshotPath)) {
+            fs.unlinkSync(screenshotPath);
+          }
+        }
+      }
+      
+      // 이미지 URL 로깅
+      console.log(`\n🖼️ 찾은 이미지 URL (${imageUrls.length}개):`);
+      imageUrls.forEach((url, index) => {
+        // URL이 너무 길면 잘라서 표시
+        const displayUrl = url.length > 100 ? url.substring(0, 97) + '...' : url;
+        console.log(`   ${index + 1}. ${displayUrl}`);
+      });
+
+      // 모든 이미지를 OCR 처리
+      let allText = '';
+      for (let i = 0; i < imageUrls.length; i++) {
+        const url = imageUrls[i];
+        console.log(`\n📝 이미지 ${i + 1}/${imageUrls.length} OCR 처리 중: ${url.substring(0, 50)}...`);
+        
+        try {
+          const imageText = await this.processImageWithOCR(url);
+          if (imageText) {
+            allText += imageText + '\n\n';
+            console.log(`✅ 이미지 ${i + 1} OCR 처리 완료 (${imageText.length} 글자 추출)`);
+          }
+        } catch (error) {
+          console.error(`⚠️ 이미지 ${i + 1} OCR 처리 중 오류:`, error);
+        }
+      }
+
+      return {
+        content: allText.trim(),
+        type: 'ocr'
+      };
+    } catch (error) {
+      console.error('🔴 OCR 처리 중 오류:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 단일 이미지 URL을 OCR 처리하는 메서드
+   * @param imageUrl - 이미지 URL 또는 데이터 URL
+   * @returns 추출된 텍스트
+   */
+  private async processImageWithOCR(imageUrl: string): Promise<string> {
+    if (!this.mistralClient) {
+      throw new Error('Mistral API 클라이언트가 초기화되지 않았습니다.');
+    }
+
+    // OCR API 호출
+    const ocrResponse = await this.mistralClient.ocr.process({
+      model: "mistral-ocr-latest",
+      document: {
+        type: "image_url",
+        imageUrl: imageUrl,
+      }
+    });
+    
+    // 결과 추출
+    let extractedText = '';
+    if (ocrResponse.pages && ocrResponse.pages.length > 0) {
+      extractedText = ocrResponse.pages.map(page => page.markdown).join('\n\n');
+    }
+    
+    return extractedText;
+  }
+
+  /**
+   * 채용공고 URL이 이미 수집되었는지 확인하는 최적화된 메서드
+   * @param urls 확인할 URL 배열
+   * @returns 이미 존재하는 URL 배열
+   */
+  private async checkExistingUrls(urls: string[]): Promise<string[]> {
+    if (urls.length === 0) return [];
+    
+    try {
+      // 한 번의 데이터베이스 쿼리로 모든 URL 확인
+      const existingRecords = await CompanyRecruitmentTable.findAll({
+        attributes: ['job_url'],
+        where: {
+          job_url: {
+            [sequelize.Op.in]: urls
+          }
+        },
+        raw: true // 빠른 처리를 위해 raw 객체 반환
+      });
+      
+      // 결과를 URL 배열로 변환
+      return existingRecords.map(record => record.job_url);
+    } catch (error) {
+      console.error('🔴 기존 URL 확인 중 오류:', error);
+      return [];
     }
   }
 

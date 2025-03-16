@@ -28,7 +28,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   /**
    * 테스트 컨트롤 서비스
    */
-  private ScraperControlService = new ScraperControlService([]);
+  private ScraperControlService = new ScraperControlService();
 
   /**
    * @name 테스트

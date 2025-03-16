@@ -127,4 +127,21 @@ export default class CompanyRecruitmentTable extends ModelABC {
     defaultValue: false,  // 기본값은 false (초기에는 지원하지 않은 상태)
   })
   is_applied!: boolean;
+
+  // 상세 채용 내용 필드 - 채용 공고의 상세 내용 (TEXT 타입으로 저장하여 대용량 텍스트 지원)
+  @AllowNull(true)
+  @Column({
+    type: DataType.TEXT('long'),  // 대용량 텍스트를 저장할 수 있는 LONGTEXT 타입
+    comment: "채용 공고 상세 내용 (텍스트 또는 OCR로 추출된 내용)",
+  })
+  job_description!: string;
+
+  // 상세 내용 타입 필드 - 텍스트인지 OCR로 추출한 것인지 구분
+  @AllowNull(true)
+  @Column({
+    type: DataType.STRING,
+    comment: "상세 내용 추출 방식 (text 또는 ocr)",
+    defaultValue: "text"
+  })
+  description_type!: string;
 }
