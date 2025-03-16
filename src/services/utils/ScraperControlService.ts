@@ -60,6 +60,7 @@ interface JobInfo {
   jobType: string;      // 채용 형태 (문자열 타입) - 예: "신입", "경력 3년 이상", "인턴" 등
   jobSalary: string;    // 급여 정보 (문자열 타입) - 예: "3,000만원 이상", "회사 내규에 따름" 등
   deadline: string;     // 지원 마감일 (문자열 타입) - 예: "2023-12-31", "상시채용" 등
+  employmentType: string; // 근무형태 (문자열 타입) - 예: "정규직", "계약직", "인턴", "파견직" 등
   url?: string;         // 원본 채용공고 URL (선택적 속성) - 예: "https://www.saramin.co.kr/job/12345"
                         // '?'는 이 속성이 없을 수도 있다는 의미입니다 (필수가 아닌 선택사항)
   companyType?: string; // 기업형태 (선택적 속성) - 예: "대기업", "중소기업", "스타트업" 등
@@ -386,12 +387,18 @@ export default class ScraperControlService extends ScraperServiceABC {
       await page.goto(url, { waitUntil: "networkidle2" });
       await sleep(waitTime);  // 추가 로딩 대기
 
-      // 페이지 내 자바스크립트 실행하여 채용정보 추출
+      // 페이지 내 자바스크립트를 실행하여 채용정보 추출
       // evaluate 내부 함수는 브라우저 컨텍스트에서 실행됨 (Puppeteer의 특성)
       const jobInfo = await page.evaluate(() => {
-        // 채용정보가 포함된 컨테이너 요소 찾기
-        const wrapContainer = document.querySelector(".wrap_jv_cont");
-        if (!wrapContainer) return null; // 컨테이너가 없으면 정보 추출 불가능, null 반환
+        // 동적 클래스명을 가진 jview 섹션 요소 찾기 (정규표현식 사용)
+        const jviewSectionSelector = "section[class^='jview jview-0-']";
+        const jviewSection = document.querySelector(jviewSectionSelector);
+        
+        // jview 섹션이 없으면 null 반환
+        if (!jviewSection) {
+          console.error("채용정보 섹션(jview)을 찾을 수 없습니다.");
+          return null;
+        }
 
         /**
          * 선택자에서 텍스트 내용 추출하는 도우미 함수
@@ -399,10 +406,7 @@ export default class ScraperControlService extends ScraperServiceABC {
          * @returns - 추출된 텍스트 (없으면 빈 문자열)
          */
         const getTextContent = (selector: string): string => {
-          const element = wrapContainer.querySelector(selector);
-          // element가 있으면 textContent 속성 값을 trim(공백 제거)하여 반환, 없으면 빈 문자열
-          // ?. : 선택적 체이닝 연산자, element가 null이면 undefined 반환
-          // || : 왼쪽 값이 falsy(false, null, undefined 등)면 오른쪽 값 사용
+          const element = jviewSection.querySelector(selector);
           return element ? element.textContent?.trim() || "" : "";
         };
 
@@ -414,7 +418,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         const extractDeadline = (): string => {
           // 마감일 관련 키워드가 포함된 텍스트 찾기
           // Array.from: 유사 배열 객체를 배열로 변환
-          const allElements = Array.from(wrapContainer.querySelectorAll("*"));
+          const allElements = Array.from(jviewSection.querySelectorAll("*"));
           
           // 모든 요소를 순회하며 마감일 관련 텍스트 찾기
           for (const el of allElements) {
@@ -453,7 +457,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         const extractInfoFromColumns = (): Record<string, string> => {
           const result: Record<string, string> = {};  // 빈 객체로 초기화
           // dl(definition list) 요소들 선택
-          const dlElements = wrapContainer.querySelectorAll("dl");
+          const dlElements = jviewSection.querySelectorAll("dl");
           
           // 각 정의 리스트에서 제목(dt)과 값(dd)을 추출하여 객체로 변환
           dlElements.forEach((dl) => {
@@ -473,8 +477,8 @@ export default class ScraperControlService extends ScraperServiceABC {
          * @returns - 기업형태 문자열
          */
         const extractCompanyType = (): string => {
-          // 기업형태 정보 찾기
-          const companyInfoArea = document.querySelector(".info_area");
+          // 기업형태 정보 찾기 - jviewSection 내에서 검색
+          const companyInfoArea = jviewSection.querySelector(".info_area");
           if (!companyInfoArea) return "";
           
           // 모든 dl 요소를 찾아서 기업형태가 포함된 요소 검색
@@ -509,12 +513,11 @@ export default class ScraperControlService extends ScraperServiceABC {
         // 근무지 정보 추출 및 정리
         const jobLocation = columnInfo["근무지역"]?.replace(/지도/g, "").trim() || "";
         
-        // 마감일 정보 추출 (여러 필드 시도)
-        // 마감일 정보 추출 - 새로운 HTML 구조 대응
+        // 마감일 정보 추출 - jview 섹션 내에서 검색
         let deadline = "";
         
         // 시간/날짜 정보를 담고 있는 info_period 클래스 확인
-        const infoDeadline = wrapContainer.querySelector(".info_period");
+        const infoDeadline = jviewSection.querySelector(".info_period");
         if (infoDeadline) {
           // 마감일(dt.end) 뒤에 오는 dd 요소 찾기
           const endDt = infoDeadline.querySelector("dt.end");
@@ -525,6 +528,11 @@ export default class ScraperControlService extends ScraperServiceABC {
               deadline = endDd.textContent?.trim() || "";
             }
           }
+        }
+        
+        // 위에서 마감일을 찾지 못한 경우 다른 방법으로 시도
+        if (!deadline) {
+          deadline = extractDeadline();
         }
         
         // 급여 정보 추출 및 정리 (불필요한 부분 제거)
@@ -545,18 +553,22 @@ export default class ScraperControlService extends ScraperServiceABC {
           }
         }
         
+        // 근무형태 정보 추출
+        const employmentType = columnInfo["근무형태"] || columnInfo["고용형태"] || "";
+        
         // 기업형태 정보 추출
         const companyType = extractCompanyType();
         
         // 추출한 정보를 객체로 구성하여 반환
         return {
-          companyName,   // 회사명
-          jobTitle,      // 채용 제목
-          jobLocation,   // 근무지
+          companyName,     // 회사명
+          jobTitle,        // 채용 제목
+          jobLocation,     // 근무지
           jobType: columnInfo["경력"] || columnInfo["경력조건"] || "", // 경력 조건
-          jobSalary,     // 급여 정보
-          deadline,      // 마감일
-          companyType    // 기업형태
+          jobSalary,       // 급여 정보
+          deadline,        // 마감일
+          employmentType,  // 근무형태 (정규직, 계약직 등)
+          companyType      // 기업형태
         };
       });
 
@@ -570,6 +582,7 @@ export default class ScraperControlService extends ScraperServiceABC {
           job_type: jobInfo.jobType,
           job_salary: jobInfo.jobSalary,
           deadline: jobInfo.deadline,
+          employment_type: jobInfo.employmentType || "", // 근무형태 정보 저장
           job_url: url,
           company_type: jobInfo.companyType || "", // 기업형태 정보 저장
           scraped_at: new Date(), // 현재 시간으로 데이터 수집 일시 설정
@@ -583,6 +596,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         console.log(`📍 근무지역: ${jobInfo.jobLocation}`);
         console.log(`👨‍💼 경력조건: ${jobInfo.jobType}`);
         console.log(`💰 급여정보: ${jobInfo.jobSalary}`);
+        console.log(`👔 근무형태: ${jobInfo.employmentType || "정보 없음"}`);
         console.log(`⏰ 마감일자: ${jobInfo.deadline}`);
         console.log(`🏭 기업형태: ${jobInfo.companyType || "정보 없음"}`);
         console.log(`🔗 원본URL: ${url}`);
@@ -638,6 +652,18 @@ export default class ScraperControlService extends ScraperServiceABC {
     
     console.log(`\n📊 경력 조건별 채용공고:`);
     Object.entries(jobTypeCounts).forEach(([type, count]) => {
+      console.log(`   - ${type}: ${count}개`);
+    });
+    
+    // 근무형태별 통계
+    const employmentTypeCounts: Record<string, number> = {};
+    jobs.forEach(job => {
+      const type = job.employmentType || '미지정';
+      employmentTypeCounts[type] = (employmentTypeCounts[type] || 0) + 1;
+    });
+    
+    console.log(`\n📊 근무형태별 채용공고:`);
+    Object.entries(employmentTypeCounts).forEach(([type, count]) => {
       console.log(`   - ${type}: ${count}개`);
     });
     

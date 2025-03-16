@@ -85,6 +85,14 @@ export default class CompanyRecruitmentTable extends ModelABC {
   })
   deadline!: string;
 
+  // 근무형태 필드 (예: 정규직, 계약직, 인턴, 파견직 등) - 선택적 항목
+  @AllowNull(true)
+  @Column({
+    type: DataType.STRING,
+    comment: "근무형태",
+  })
+  employment_type!: string;
+
   // 데이터 수집 일시 필드 - 이 정보가 언제 수집되었는지 기록 (필수 항목)
   @AllowNull(false)
   @Column({
