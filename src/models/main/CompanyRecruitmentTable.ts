@@ -44,6 +44,14 @@ export default class CompanyRecruitmentTable extends ModelABC {
     comment: "채용 공고 제목",
   })
   job_title!: string;
+
+  // 상세 채용 내용 필드 - 채용 공고의 상세 내용 (TEXT 타입으로 저장하여 대용량 텍스트 지원)
+  @AllowNull(true)
+  @Column({
+    type: DataType.TEXT('long'),  // 대용량 텍스트를 저장할 수 있는 LONGTEXT 타입
+    comment: "채용 공고 상세 내용 (텍스트 또는 OCR로 추출된 내용)",
+  })
+  job_description!: string;
   
   // 기업형태 필드 (예: 대기업, 중소기업, 스타트업 등) - 선택적 항목
   @AllowNull(true)  // NULL 값 허용 (정보가 없어도 됨)
@@ -128,13 +136,7 @@ export default class CompanyRecruitmentTable extends ModelABC {
   })
   is_applied!: boolean;
 
-  // 상세 채용 내용 필드 - 채용 공고의 상세 내용 (TEXT 타입으로 저장하여 대용량 텍스트 지원)
-  @AllowNull(true)
-  @Column({
-    type: DataType.TEXT('long'),  // 대용량 텍스트를 저장할 수 있는 LONGTEXT 타입
-    comment: "채용 공고 상세 내용 (텍스트 또는 OCR로 추출된 내용)",
-  })
-  job_description!: string;
+
 
   // 상세 내용 타입 필드 - 텍스트인지 OCR로 추출한 것인지 구분
   @AllowNull(true)

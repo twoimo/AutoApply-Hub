@@ -42,6 +42,7 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
+import sharp from 'sharp';
 
 // 환경변수 로드
 dotenv.config();
@@ -860,27 +861,94 @@ export default class ScraperControlService extends ScraperServiceABC {
    * @param imageUrl - 이미지 URL 또는 데이터 URL
    * @returns 추출된 텍스트
    */
+  /**
+   * 단일 이미지 URL을 OCR 처리하는 메서드
+   * @param imageUrl - 이미지 URL 또는 데이터 URL
+   * @returns 추출된 텍스트
+   */
   private async processImageWithOCR(imageUrl: string): Promise<string> {
     if (!this.mistralClient) {
       throw new Error('Mistral API 클라이언트가 초기화되지 않았습니다.');
     }
 
-    // OCR API 호출
-    const ocrResponse = await this.mistralClient.ocr.process({
-      model: "mistral-ocr-latest",
-      document: {
-        type: "image_url",
-        imageUrl: imageUrl,
+    const maxRetries = 3;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+      try {
+        // 이미지 크기 확인 및 필요 시 리사이즈
+        const resizedImageUrl = await this.resizeImageIfNeeded(imageUrl);
+
+        // OCR API 호출
+        const ocrResponse = await this.mistralClient.ocr.process({
+          model: "mistral-ocr-latest",
+          document: {
+            type: "image_url",
+            imageUrl: resizedImageUrl,
+          }
+        });
+
+        // 결과 추출
+        let extractedText = '';
+        if (ocrResponse.pages && ocrResponse.pages.length > 0) {
+          extractedText = ocrResponse.pages.map(page => page.markdown).join('\n\n');
+        }
+
+        return extractedText;
+      } catch (error) {
+        if ((error as any).statusCode === 429) {
+          if (error instanceof Error) {
+            console.error(`⚠️ OCR 처리 중 오류: ${error.message}. 재시도 중... (${attempt + 1}/${maxRetries})`);
+          } else {
+            console.error(`⚠️ OCR 처리 중 알 수 없는 오류. 재시도 중... (${attempt + 1}/${maxRetries})`);
+          }
+          await sleep(2000); // 2초 대기 후 재시도
+          attempt++;
+        } else {
+          throw error;
+        }
       }
-    });
-    
-    // 결과 추출
-    let extractedText = '';
-    if (ocrResponse.pages && ocrResponse.pages.length > 0) {
-      extractedText = ocrResponse.pages.map(page => page.markdown).join('\n\n');
     }
-    
-    return extractedText;
+
+    throw new Error('OCR 처리 중 오류: 최대 재시도 횟수를 초과했습니다.');
+  }
+
+  /**
+   * 이미지 크기를 확인하고 필요 시 리사이즈하는 메서드
+   * @param imageUrl - 이미지 URL
+   * @returns 리사이즈된 이미지 URL 또는 원본 URL
+   */
+  private async resizeImageIfNeeded(imageUrl: string): Promise<string> {
+    // 이미지가 최대 허용 크기를 초과하는 경우 리사이즈하는 로직 구현
+    // 리사이즈된 이미지 URL 또는 리사이즈가 필요 없는 경우 원본 URL 반환
+    // sharp 라이브러리를 사용하여 이미지 리사이즈 예시
+    const maxWidth = 10000;
+    const maxHeight = 10000;
+
+    // 이미지 가져오기 및 크기 확인
+    const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+    const imageBuffer = Buffer.from(response.data, 'binary');
+    const image = await sharp(imageBuffer);
+    const metadata = await image.metadata();
+
+    if ((metadata.width && metadata.width > maxWidth) || (metadata.height && metadata.height > maxHeight)) {
+      const resizedImageBuffer = await image.resize(maxWidth, maxHeight, {
+        fit: sharp.fit.inside,
+        withoutEnlargement: true
+      }).toBuffer();
+
+      // 리사이즈된 이미지를 임시 위치에 저장하고 URL 반환
+      const tempDir = path.join(process.cwd(), 'temp');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir);
+      }
+      const resizedImagePath = path.join(tempDir, `${uuidv4()}.png`);
+      fs.writeFileSync(resizedImagePath, resizedImageBuffer);
+
+      return `file://${resizedImagePath}`;
+    }
+
+    return imageUrl;
   }
 
   /**
