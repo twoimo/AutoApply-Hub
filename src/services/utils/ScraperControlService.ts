@@ -699,23 +699,34 @@ export default class ScraperControlService extends ScraperServiceABC {
               return imageElements.length > 0;
             });
             
+            // 이미지가 있는 경우 OCR 처리 시도
+            let ocrContent = '';
             if (isImageContent) {
-              // 이미지가 포함된 콘텐츠는 OCR 사용
               console.log('🖼️ 이미지 포함 채용 공고 감지: OCR 처리 시작');
               
               // OCR 처리 수행
               const result = await this.processOCR(iframePage);
               if (result) {
-                await iframePage.close();
-                return result;
+                ocrContent = result.content;
+                console.log(`✅ OCR 처리 완료 (${ocrContent.length} 글자)`);
               }
             }
-            
-            // 이미지가 없거나 OCR 처리 실패 시 일반 텍스트 추출
+
+            // OCR 처리 여부와 관계없이 항상 텍스트 내용도 추출
             const textContent = await iframePage.evaluate(() => {
               const contentElement = document.querySelector('body');
               return contentElement?.innerText || '';
             });
+            console.log(`✅ 텍스트 추출 완료 (${textContent.length} 글자)`);
+
+            // OCR과 텍스트 내용 조합
+            let finalContent = textContent;
+            let contentType = 'text';
+
+            if (ocrContent) {
+              finalContent = `[OCR 추출 내용]\n${ocrContent}\n\n[일반 텍스트 내용]\n${textContent}`;
+              contentType = 'ocr+text';
+            }
             
             await iframePage.close();
             return {
