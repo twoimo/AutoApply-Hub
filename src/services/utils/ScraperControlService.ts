@@ -111,7 +111,7 @@ export default class ScraperControlService extends ScraperServiceABC {
    */
   private defaultConfig: ScraperConfig = {
     startPage: 2,       // 기본 시작 페이지는 2페이지 (첫 페이지를 건너뜀)
-    endPage: 31,        // 기본 종료 페이지는 31페이지 (2~31페이지까지 스크랩)
+    endPage: 43,        // 기본 종료 페이지는 31페이지 (2~31페이지까지 스크랩)
     headless: false,    // 기본적으로 브라우저 UI 표시 (디버깅하기 쉽게)
     waitTime: Math.floor(Math.random() * 2001) + 4000    // 4~6초(4000~6000ms) 사이 랜덤 대기 시간
   };
