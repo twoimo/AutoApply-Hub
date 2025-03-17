@@ -135,7 +135,7 @@ export default class ScraperControlService extends ScraperServiceABC {
   constructor() {
     // 부모 클래스 생성자에게 빈 배열 전달
     super([]);
-    const apiKey = process.env.MISTRAL_API_KEY || 'cQPE5USa9KbRebszI0SSPMN54gvQXy53'; // 환경변수나 기본값 사용
+    const apiKey = process.env.MISTRAL_API_KEY // 환경변수나 기본값 사용
     if (apiKey) {
       try {
         this.mistralClient = new Mistral({ apiKey });
