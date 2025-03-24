@@ -490,7 +490,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         if (jobDescriptionResult) {
           jobInfo.jobDescription = jobDescriptionResult.content;
           jobInfo.descriptionType = jobDescriptionResult.type;
-          console.log(`채용 상세 설명 추출 성공: ${jobDescriptionResult.type} 방식`);
+          // console.log(`채용 상세 설명 추출 성공: ${jobDescriptionResult.type} 방식`);
         } else {
           console.log(`채용 상세 설명을 찾을 수 없음`);
         }
@@ -593,7 +593,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       const cleanedTextContent = this.cleanJobDescription(textContent);
       // 추가: Mistral 모델을 사용하여 텍스트 개선
       const improvedTextContent = await this.improveTextWithMistral(cleanedTextContent);
-      console.log(`\n텍스트 추출 및 개선 완료 (${improvedTextContent.length}자)`);
+      // console.log(`\n텍스트 추출 및 개선 완료 (${improvedTextContent.length}자)`);
 
       let finalContent = improvedTextContent;
       let contentType = 'text';
