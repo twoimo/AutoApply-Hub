@@ -63,6 +63,9 @@ export default class ScraperControlService extends ScraperServiceABC {
 
   // 프로그레스바 인스턴스
   private progressBar: cliProgress.SingleBar | null = null;
+  
+  // 로그 출력 제어 플래그
+  private verboseLogging: boolean = false;
 
   constructor() {
     super([]);
@@ -78,9 +81,9 @@ export default class ScraperControlService extends ScraperServiceABC {
     if (apiKey) {
       try {
         this.mistralClient = new Mistral({ apiKey });
-        console.log('Mistral AI API 클라이언트 초기화 완료');
+        console.log('✅ Mistral AI API 클라이언트 초기화 완료');
       } catch (error) {
-        console.error('Mistral AI API 클라이언트 초기화 실패:', error);
+        console.error('❌ Mistral AI API 클라이언트 초기화 실패:', error);
         this.mistralClient = null;
       }
     }
@@ -96,7 +99,7 @@ export default class ScraperControlService extends ScraperServiceABC {
   }
 
   /**
-   * 프로그레스바 생성 및 초기화
+   * 프로그레스바 생성 및 초기화 (메인 페이지 진행용으로만 사용)
    */
   private initializeProgressBar(total: number, startText: string): void {
     // 이미 존재하는 프로그레스바 정리
@@ -104,8 +107,8 @@ export default class ScraperControlService extends ScraperServiceABC {
       this.progressBar.stop();
     }
 
-    // 멀티바 포맷 설정
-    const progressBarFormat = `${startText} ${colors.cyan('{bar}')} {percentage}% | {value}/{total} | 경과시간: {duration_formatted} | 남은시간: {eta_formatted}`;
+    // 프로그레스바 포맷 설정
+    const progressBarFormat = `${colors.yellow(startText)} ${colors.cyan('{bar}')} ${colors.green('{percentage}%')} | ${colors.blue('{value}/{total}')} | 경과: {duration_formatted} | 남은시간: {eta_formatted}`;
     
     // 프로그레스바 생성
     this.progressBar = new cliProgress.SingleBar({
@@ -122,6 +125,38 @@ export default class ScraperControlService extends ScraperServiceABC {
   }
 
   /**
+   * 간소화된 로그 출력 함수
+   */
+  private log(message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info'): void {
+    let formattedMessage = '';
+    
+    switch(type) {
+      case 'success':
+        formattedMessage = colors.green('✅ ' + message);
+        break;
+      case 'warning':
+        formattedMessage = colors.yellow('⚠️ ' + message);
+        break;
+      case 'error':
+        formattedMessage = colors.red('❌ ' + message);
+        break;
+      default:
+        formattedMessage = colors.blue('ℹ️ ' + message);
+    }
+    
+    console.log(formattedMessage);
+  }
+
+  /**
+   * 상세 로그 출력 (verboseLogging이 true일 때만 출력)
+   */
+  private logVerbose(message: string): void {
+    if (this.verboseLogging) {
+      console.log(colors.gray('   ' + message));
+    }
+  }
+
+  /**
    * 사람인 채용 공고 스크래핑 시작
    */
   public async openSaramin(config: ScraperConfig = {}): Promise<JobInfo[]> {
@@ -132,7 +167,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     let browser: Browser | null = null;
     const collectedJobs: JobInfo[] = [];
     
-    console.log(`\n사람인 채용 정보 스크래핑 시작: 페이지 ${startPage}부터 데이터가 없을 때까지`);
+    this.log(`사람인 채용 정보 스크래핑 시작 (페이지 ${startPage}부터)`, 'info');
     const startTime = Date.now();
     
     let consecutiveDuplicates = 0;
@@ -150,7 +185,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       let processedPages = 0;
   
       for (let i = startPage; i <= endPage && continueScrapping; i++) {
-        console.log(`\n페이지 ${i} 스크래핑 중...`);
+        this.log(`페이지 ${i} 처리 중...`);
         
         const pageJobs = await this.processSaraminPage(page, i, waitTime, consecutiveDuplicates, continueScrapping);
         
@@ -167,7 +202,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         }
         
         if (pageJobs.length === 0) {
-          console.log(`\n페이지 ${i}에서 채용 공고를 찾을 수 없습니다. 스크래핑을 종료합니다.`);
+          this.log(`페이지 ${i}에서 채용 공고를 찾을 수 없습니다. 스크래핑 종료.`, 'warning');
           break;
         }
         
@@ -175,10 +210,10 @@ export default class ScraperControlService extends ScraperServiceABC {
         const allExisting = await this.checkExistingUrls(pageJobs.map(job => job.url || ''));
         if (allExisting.length === pageJobs.length) {
           consecutiveDuplicates++;
-          console.log(`\n연속 ${consecutiveDuplicates}페이지에서 모든 채용 공고가 중복되었습니다.`);
+          this.log(`연속 ${consecutiveDuplicates}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
           
           if (consecutiveDuplicates >= 3) {
-            console.log(`\n연속 ${consecutiveDuplicates}페이지에서 중복 발견: 스크래핑을 종료합니다.`);
+            this.log(`연속 ${consecutiveDuplicates}페이지에서 중복 발견: 스크래핑 종료.`, 'warning');
             break;
           }
         } else {
@@ -186,7 +221,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         }
         
         collectedJobs.push(...pageJobs);
-        console.log(`페이지 ${i} 완료: ${pageJobs.length}개 채용 공고 추출됨`);
+        this.log(`페이지 ${i} 완료: ${pageJobs.length}개 채용 공고 추출됨`, 'success');
       }
       
       // 프로그레스바 완료 처리
@@ -197,11 +232,11 @@ export default class ScraperControlService extends ScraperServiceABC {
       this.printSummary(collectedJobs);
       
       const elapsedTime = (Date.now() - startTime) / 1000;
-      console.log(`총 소요 시간: ${elapsedTime.toFixed(2)}초`);
+      this.log(`총 소요 시간: ${elapsedTime.toFixed(2)}초`, 'success');
       
       return collectedJobs;
     } catch (error) {
-      console.error(`스크래핑 중 오류 발생:`, error);
+      this.log(`스크래핑 중 오류 발생: ${error}`, 'error');
       
       // 오류 발생 시 프로그레스바 중지
       if (this.progressBar) {
@@ -212,7 +247,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     } finally {
       if (browser) {
         await browser.close();
-        console.log(`브라우저 종료 및 스크래핑 완료`);
+        this.log(`브라우저 종료 및 스크래핑 완료`, 'success');
       }
     }
   }
@@ -265,21 +300,21 @@ export default class ScraperControlService extends ScraperServiceABC {
       await sleep(waitTime);
   
       const links = await this.extractJobLinks(page);
-      console.log(`페이지 ${pageNum}: ${links.length}개 채용 공고 발견`);
+      this.logVerbose(`페이지 ${pageNum}: ${links.length}개 채용 공고 발견`);
       
       const urlsToCheck = links.map(link => `https://www.saramin.co.kr${link}`);
       const existingUrls = await this.checkExistingUrls(urlsToCheck);
       
-      console.log(`${existingUrls.length}개 중복 채용 공고 발견`);
+      this.logVerbose(`${existingUrls.length}개 중복 채용 공고 발견`);
       
       const duplicatesInThisPage = existingUrls.length;
       
       if (duplicatesInThisPage >= 5 && duplicatesInThisPage === links.length) {
-        console.log(`\n모든 채용 공고(${duplicatesInThisPage}개)가 이미 수집되었습니다`);
+        this.log(`모든 채용 공고(${duplicatesInThisPage}개)가 이미 수집되었습니다`, 'warning');
         consecutiveDuplicates++;
         
         if (consecutiveDuplicates >= 3) {
-          console.log(`\n연속 ${consecutiveDuplicates}페이지에서 중복 발견`);
+          this.log(`연속 ${consecutiveDuplicates}페이지에서 중복 발견`, 'warning');
           continueScrapping = false;
           return pageJobs;
         }
@@ -289,18 +324,18 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       const newUrls = urlsToCheck.filter(url => !existingUrls.includes(url));
       
-      // 채용공고 상세정보 프로그레스바 초기화
       if (newUrls.length > 0) {
-        // 기존 페이지 프로그레스바 임시 중지
-        const mainProgressBar = this.progressBar;
-        
-        // 채용공고 처리용 새 프로그레스바 생성
-        this.initializeProgressBar(newUrls.length, `페이지 ${pageNum} 채용공고 처리:`);
-        
-        let processedJobs = 0;
-        
-        for (const fullUrl of newUrls) {
+        // 부가 프로그레스바 대신 상태 업데이트만 표시
+        for (let i = 0; i < newUrls.length; i++) {
           try {
+            const fullUrl = newUrls[i];
+            // 메인 프로그레스바 상태 텍스트 업데이트
+            if (this.progressBar) {
+              this.progressBar.update(this.progressBar.value, {
+                startText: `페이지 ${pageNum} | 채용공고 ${i+1}/${newUrls.length}`
+              });
+            }
+            
             const randomWaitTime = Math.floor(Math.random() * 2001) + 4000;
             const jobInfo = await this.extractJobDetails(page, fullUrl, randomWaitTime);
             
@@ -309,36 +344,22 @@ export default class ScraperControlService extends ScraperServiceABC {
               pageJobs.push(jobInfo);
               await this.saveJobToDatabase(jobInfo, fullUrl);
             }
-            
-            // 상세정보 프로그레스바 업데이트
-            processedJobs++;
-            if (this.progressBar) {
-              this.progressBar.update(processedJobs);
-            }
           } catch (error) {
-            console.error(`채용 상세 정보 추출 오류: ${error}`);
-            
-            // 오류 발생해도 프로그레스바 업데이트
-            processedJobs++;
-            if (this.progressBar) {
-              this.progressBar.update(processedJobs);
-            }
-            
+            this.log(`채용 상세 정보 추출 오류: ${error}`, 'error');
             continue;
           }
         }
         
-        // 채용공고 처리 프로그레스바 정리
+        // 메인 프로그레스바 원래 상태로 복원
         if (this.progressBar) {
-          this.progressBar.stop();
+          this.progressBar.update(this.progressBar.value, {
+            startText: '페이지 진행률:'
+          });
         }
-        
-        // 원래 페이지 프로그레스바 복원
-        this.progressBar = mainProgressBar;
       }
       
     } catch (error) {
-      console.error(`페이지 ${pageNum} 처리 중 오류: ${error}`);
+      this.log(`페이지 ${pageNum} 처리 중 오류: ${error}`, 'error');
     }
     
     return pageJobs;
@@ -364,26 +385,20 @@ export default class ScraperControlService extends ScraperServiceABC {
       is_applied: false
     });
 
-    this.logJobInfo(jobInfo, url);
+    // 간소화된 로그 형식 적용
+    this.logVerbose(`채용 정보 저장: ${jobInfo.companyName} - ${jobInfo.jobTitle}`);
   }
 
   /**
-   * 채용 정보를 콘솔에 기록
+   * 채용 정보를 콘솔에 기록 (간소화)
    */
   private logJobInfo(jobInfo: JobInfo, url: string): void {
-    console.log(`\n채용 정보 추출 성공`);
-    console.log(`------------------------------`);
-    console.log(`회사: ${jobInfo.companyName}`);
-    console.log(`제목: ${jobInfo.jobTitle}`);
-    console.log(`위치: ${jobInfo.jobLocation}`);
-    console.log(`경력: ${jobInfo.jobType}`);
-    console.log(`급여: ${jobInfo.jobSalary}`);
-    console.log(`고용 형태: ${jobInfo.employmentType || "명시되지 않음"}`);
-    console.log(`마감일: ${jobInfo.deadline}`);
-    console.log(`회사 유형: ${jobInfo.companyType || "명시되지 않음"}`);
-    console.log(`원본 URL: ${url}`);
-    console.log(`상세 정보: ${jobInfo.jobDescription ? '추출됨' : '없음'} (${jobInfo.descriptionType || 'N/A'})`);
-    console.log(`------------------------------\n`);
+    // verbose 모드에서만 자세한 정보 출력
+    if (!this.verboseLogging) return;
+    
+    console.log(colors.cyan(`\n■ 채용 정보: ${jobInfo.companyName} - ${jobInfo.jobTitle}`));
+    console.log(colors.gray(`  위치: ${jobInfo.jobLocation} | 경력: ${jobInfo.jobType} | 급여: ${jobInfo.jobSalary}`));
+    console.log(colors.gray(`  마감일: ${jobInfo.deadline} | 고용형태: ${jobInfo.employmentType || "명시되지 않음"}`));
   }
 
   /**
@@ -573,7 +588,7 @@ export default class ScraperControlService extends ScraperServiceABC {
   }
 
   /**
-   * 채용 상세 페이지에서 직무 설명 추출
+   * 채용 상세 페이지에서 직무 설명 추출 (간소화된 로그)
    */
   private async extractJobDescription(page: Page): Promise<{ content: string; type: string } | null> {
     try {
@@ -582,7 +597,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       });
 
       if (!hasDetailSection) {
-        console.log('상세 섹션이 존재하지 않음');
+        this.logVerbose('상세 섹션이 존재하지 않음');
         return null;
       }
 
@@ -602,7 +617,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       // 추출된 직무 설명 텍스트 정리
       const cleanedContent = this.cleanJobDescription(directContent);
-      // 추가: Mistral 모델을 사용하여 텍스트 개선
+      // Mistral 모델을 사용하여 텍스트 개선
       const improvedContent = await this.improveTextWithMistral(cleanedContent);
       
       return {
@@ -610,7 +625,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         type: 'text'
       };
     } catch (error) {
-      console.error('채용 상세 설명 추출 중 오류:', error);
+      this.log('채용 상세 설명 추출 중 오류: ' + error, 'error');
       return null;
     }
   }
@@ -920,7 +935,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     if (!this.mistralClient) return text;
     
     try {
-      console.log('\nMistral AI를 사용하여 텍스트 개선 중...');
+      this.logVerbose('Mistral AI를 사용하여 텍스트 개선 중...');
       
       const prompt = `
 당신은 채용 공고 텍스트를 깔끔하게 정리하는 전문가입니다. 
@@ -965,7 +980,7 @@ ${text}
         : text;
       return improvedText.trim();
     } catch (error) {
-      console.error('Mistral AI 텍스트 개선 중 오류:', error);
+      this.log('Mistral AI 텍스트 개선 중 오류: ' + error, 'error');
       return text; // 오류 발생 시 원본 텍스트 반환
     }
   }
@@ -995,13 +1010,13 @@ ${text}
   }
 
   /**
-   * 스크래핑 결과 요약 출력
+   * 스크래핑 결과 요약 출력 (간소화)
    */
   private printSummary(jobs: JobInfo[]): void {
-    console.log(`\n=================================`);
-    console.log(`스크래핑 결과 요약`);
-    console.log(`=================================`);
-    console.log(`총 수집된 채용 공고: ${jobs.length}개`);
+    console.log(colors.yellow.bold('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+    console.log(colors.yellow.bold('📊 스크래핑 결과 요약'));
+    console.log(colors.yellow.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+    console.log(colors.green(`✅ 총 수집된 채용 공고: ${jobs.length}개`));
     
     const companyCounts: Record<string, number> = {};
     jobs.forEach(job => {
@@ -1014,9 +1029,9 @@ ${text}
       .slice(0, 5);
     
     if (topCompanies.length > 0) {
-      console.log(`\n채용 공고가 가장 많은 회사 순위:`);
+      console.log(colors.cyan('\n🏢 채용 공고가 가장 많은 회사:'));
       topCompanies.forEach(([company, count], index) => {
-        console.log(`   ${index + 1}. ${company}: ${count}개`);
+        console.log(colors.cyan(`   ${index + 1}. ${company}: ${count}개`));
       });
     }
     
@@ -1031,16 +1046,20 @@ ${text}
       employmentTypeCounts[empType] = (employmentTypeCounts[empType] || 0) + 1;
     });
     
-    console.log(`\n경력 요구사항별 채용 공고:`);
-    Object.entries(jobTypeCounts).forEach(([type, count]) => {
-      console.log(`   - ${type}: ${count}개`);
-    });
+    console.log(colors.blue('\n💼 경력 요구사항별 채용 공고:'));
+    Object.entries(jobTypeCounts)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([type, count]) => {
+        console.log(colors.blue(`   - ${type}: ${count}개`));
+      });
     
-    console.log(`\n고용 형태별 채용 공고:`);
-    Object.entries(employmentTypeCounts).forEach(([type, count]) => {
-      console.log(`   - ${type}: ${count}개`);
-    });
+    console.log(colors.magenta('\n👔 고용 형태별 채용 공고:'));
+    Object.entries(employmentTypeCounts)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([type, count]) => {
+        console.log(colors.magenta(`   - ${type}: ${count}개`));
+      });
     
-    console.log(`=================================\n`);
+    console.log(colors.yellow.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
   }
 }
