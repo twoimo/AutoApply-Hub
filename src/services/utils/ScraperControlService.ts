@@ -1,4 +1,3 @@
-import moment from "moment";
 import { ScraperServiceABC, sleep } from "@qillie/wheel-micro-service";
 import _ from "lodash";
 import sequelize from "sequelize";
@@ -45,7 +44,7 @@ export default class ScraperControlService extends ScraperServiceABC {
   // 기본 설정
   private defaultConfig: ScraperConfig = {
     startPage: 1,
-    endPage: 41,
+    endPage: Number.MAX_SAFE_INTEGER, // 데이터가 없을 때까지 계속 진행
     headless: false,
     waitTime: Math.floor(Math.random() * 2001) + 4000
   };
@@ -98,7 +97,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     let browser: Browser | null = null;
     const collectedJobs: JobInfo[] = [];
     
-    console.log(`\n사람인 채용 정보 스크래핑 시작: 페이지 ${startPage} - ${endPage}`);
+    console.log(`\n사람인 채용 정보 스크래핑 시작: 페이지 ${startPage}부터 데이터가 없을 때까지`);
     const startTime = Date.now();
     
     let consecutiveDuplicates = 0;
@@ -114,9 +113,23 @@ export default class ScraperControlService extends ScraperServiceABC {
         
         const pageJobs = await this.processSaraminPage(page, i, waitTime, consecutiveDuplicates, continueScrapping);
         
-        if (!continueScrapping) {
-          console.log(`\n연속된 중복 채용 공고로 인해 중단합니다`);
+        if (pageJobs.length === 0) {
+          console.log(`\n페이지 ${i}에서 채용 공고를 찾을 수 없습니다. 스크래핑을 종료합니다.`);
           break;
+        }
+        
+        // 연속된 중복 확인
+        const allExisting = await this.checkExistingUrls(pageJobs.map(job => job.url || ''));
+        if (allExisting.length === pageJobs.length) {
+          consecutiveDuplicates++;
+          console.log(`\n연속 ${consecutiveDuplicates}페이지에서 모든 채용 공고가 중복되었습니다.`);
+          
+          if (consecutiveDuplicates >= 3) {
+            console.log(`\n연속 ${consecutiveDuplicates}페이지에서 중복 발견: 스크래핑을 종료합니다.`);
+            break;
+          }
+        } else {
+          consecutiveDuplicates = 0;
         }
         
         collectedJobs.push(...pageJobs);
