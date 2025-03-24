@@ -770,7 +770,11 @@ export default class ScraperControlService extends ScraperServiceABC {
       }
 
       return imageUrl;
-    } catch (error) {
+    } catch (error: any) {
+      if (error.code === 'ENOTFOUND') {
+        this.log(`이미지 도메인을 찾을 수 없습니다. 원본 이미지를 사용합니다. URL: ${imageUrl}`, 'warning');
+        return imageUrl;
+      }
       console.error('이미지 크기 조정 중 오류:', error);
       return imageUrl; // 크기 조정 실패 시 원본 URL 반환
     }
