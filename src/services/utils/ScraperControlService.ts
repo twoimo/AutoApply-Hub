@@ -105,7 +105,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         formattedMessage = colors.green('✅ ' + message);
         break;
       case 'warning':
-        formattedMessage = colors.yellow('⚠️ ' + message);
+        formattedMessage = colors.yellow('⚠️  ' + message);
         break;
       case 'error':
         formattedMessage = colors.red('❌ ' + message);
@@ -162,7 +162,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         const allExisting = await this.checkExistingUrls(pageJobs.map(job => job.url || ''));
         if (allExisting.length === pageJobs.length) {
           consecutiveDuplicates++;
-          this.log(`연속 ${consecutiveDuplicates}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
+          this.log(`${consecutiveDuplicates}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
         } else {
           consecutiveDuplicates = 0;
         }
@@ -252,7 +252,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         let consecutiveDuplicates = 1;
         
         if (consecutiveDuplicates >= 3) {
-          this.log(`연속 중복 페이지 발견`, 'warning');
+          this.log(`중복 페이지 발견`, 'warning');
           shouldContinue = false;
           return { jobs: pageJobs, shouldContinue };
         }
@@ -358,10 +358,6 @@ export default class ScraperControlService extends ScraperServiceABC {
    */
   private async extractJobDetails(page: Page, url: string, waitTime: number): Promise<JobInfo | null> {
     try {
-      console.log(`\n=============================`);
-      console.log(`채용 상세 정보 처리 중: ${url}`);
-      console.log(`=============================`);
-      
       await page.goto(url, { waitUntil: "networkidle2" });
       await sleep(waitTime);
 
@@ -580,11 +576,11 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       let ocrContent = '';
       if (isImageContent) {
-        console.log('\n이미지 콘텐츠 감지: OCR 처리 시작');
+        // console.log('\n이미지 콘텐츠 감지: OCR 처리 시작');
         const result = await this.processOCR(iframePage);
         if (result) {
           ocrContent = result.content;
-          console.log(`\nOCR 처리 완료 (${ocrContent.length}자)`);
+          // console.log(`\nOCR 처리 완료 (${ocrContent.length}자)`);
         }
       }
 
@@ -647,11 +643,11 @@ export default class ScraperControlService extends ScraperServiceABC {
         return await this.processPageScreenshot(page);
       }
       
-      console.log(`\nOCR 처리를 위한 이미지 ${imageUrls.length}개 발견`);
+      // console.log(`\nOCR 처리를 위한 이미지 ${imageUrls.length}개 발견`);
 
       let allText = '';
       for (let i = 0; i < imageUrls.length; i++) {
-        console.log(`\n이미지 ${i + 1}/${imageUrls.length} 처리 중`);
+        // console.log(`\n이미지 ${i + 1}/${imageUrls.length} 처리 중`);
         
         try {
           const imageText = await this.processImageWithOCR(imageUrls[i]);
@@ -661,7 +657,7 @@ export default class ScraperControlService extends ScraperServiceABC {
             // 추가: Mistral 모델을 사용하여 텍스트 개선
             const improvedText = await this.improveTextWithMistral(cleanedImageText);
             allText += improvedText + '\n\n';
-            console.log(`\n이미지 ${i + 1} OCR 완료 및 텍스트 개선 (${improvedText.length}자)`);
+            // console.log(`\n이미지 ${i + 1} OCR 완료 및 텍스트 개선 (${improvedText.length}자)`);
           }
         } catch (error) {
           console.error(`\n이미지 ${i + 1} 처리 중 오류:`, error);
