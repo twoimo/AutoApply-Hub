@@ -185,7 +185,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       let processedPages = 0;
   
       for (let i = startPage; i <= endPage && continueScrapping; i++) {
-        this.log(`\t페이지 ${i} 처리 중...`);
+        this.log(`\t\t페이지 ${i} 처리 중...`);
         
         const pageJobs = await this.processSaraminPage(page, i, waitTime, consecutiveDuplicates, continueScrapping);
         
@@ -724,11 +724,11 @@ export default class ScraperControlService extends ScraperServiceABC {
         return await this.processPageScreenshot(page);
       }
       
-      console.log(`\nOCR 처리를 위한 이미지 ${imageUrls.length}개 발견`);
+      // console.log(`\nOCR 처리를 위한 이미지 ${imageUrls.length}개 발견`);
 
       let allText = '';
       for (let i = 0; i < imageUrls.length; i++) {
-        console.log(`\n이미지 ${i + 1}/${imageUrls.length} 처리 중`);
+        // console.log(`\n이미지 ${i + 1}/${imageUrls.length} 처리 중`);
         
         try {
           const imageText = await this.processImageWithOCR(imageUrls[i]);
@@ -948,7 +948,8 @@ export default class ScraperControlService extends ScraperServiceABC {
             3. 문단과 구조를 자연스럽게 유지하세요.
             4. 채용 정보의 핵심 내용(직무 설명, 자격 요건, 우대사항, 복리후생 등)은 반드시 유지하세요.
             5. 이메일, URL, 회사명, 지원 방법 등 중요 정보는 정확히 보존하세요.
-            6. 전체 내용을 요약하지 말고, 불필요한 텍스트만 제거하여 원본의 모든 정보를 유지하세요.
+            6. 전체 내용을 요약하지 말고, 불필요한 텍스트만 제거하여 가능한 원본의 모든 정보를 유지하세요.
+            7. 마크다운 형식으로 반환하지 말고, 문서 서식을 유지하면서 반환하세요.
 
             다음은 적절한 변환 예시입니다:
 
@@ -978,8 +979,8 @@ export default class ScraperControlService extends ScraperServiceABC {
       const response = await this.mistralClient.chat.complete({
         model: "mistral-small-latest",
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.1, // 낮은 온도로 일관된 결과 유도
-        maxTokens: 4096  // 충분한 토큰 할당
+        // temperature: 0.1, // 낮은 온도로 일관된 결과 유도
+        // maxTokens: 4096  // 충분한 토큰 할당
       });
 
       const content = response?.choices?.[0]?.message?.content || text;
