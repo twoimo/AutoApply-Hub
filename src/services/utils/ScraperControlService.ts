@@ -592,14 +592,13 @@ export default class ScraperControlService extends ScraperServiceABC {
       // 추출된 텍스트 정리
       const cleanedTextContent = this.cleanJobDescription(textContent);
       // 추가: Mistral 모델을 사용하여 텍스트 개선
-      const improvedTextContent = await this.improveTextWithMistral(cleanedTextContent);
       // console.log(`\n텍스트 추출 및 개선 완료 (${improvedTextContent.length}자)`);
 
-      let finalContent = improvedTextContent;
+      let finalContent = cleanedTextContent;
       let contentType = 'text';
 
       if (ocrContent) {
-        finalContent = `${ocrContent}\n${improvedTextContent}`;
+        finalContent = `${ocrContent}\n${cleanedTextContent}`;
         contentType = 'ocr+text';
       }
       
@@ -654,9 +653,7 @@ export default class ScraperControlService extends ScraperServiceABC {
           if (imageText) {
             // OCR로 추출된 텍스트 정리
             const cleanedImageText = this.cleanJobDescription(imageText);
-            // 추가: Mistral 모델을 사용하여 텍스트 개선
-            const improvedText = await this.improveTextWithMistral(cleanedImageText);
-            allText += improvedText + '\n\n';
+            allText += cleanedImageText + '\n\n';
             // console.log(`\n이미지 ${i + 1} OCR 완료 및 텍스트 개선 (${improvedText.length}자)`);
           }
         } catch (error) {
@@ -690,11 +687,8 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       const ocrResult = await this.processImageWithOCR(dataUrl);
       // OCR 결과 텍스트 정리
-      const cleanedOcrResult = this.cleanJobDescription(ocrResult);
-      // 추가: Mistral 모델을 사용하여 텍스트 개선
-      const improvedText = await this.improveTextWithMistral(cleanedOcrResult);
       return {
-        content: improvedText,
+        content: ocrResult,
         type: 'ocr'
       };
     } catch (error) {
