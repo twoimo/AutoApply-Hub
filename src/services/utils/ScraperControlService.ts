@@ -162,7 +162,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         const allExisting = await this.checkExistingUrls(pageJobs.map(job => job.url || ''));
         if (allExisting.length === pageJobs.length) {
           consecutiveDuplicates++;
-          this.log(`${consecutiveDuplicates}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
+          this.log(`연속 ${consecutiveDuplicates}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
         } else {
           consecutiveDuplicates = 0;
         }
@@ -252,7 +252,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         let consecutiveDuplicates = 1;
         
         if (consecutiveDuplicates >= 3) {
-          this.log(`중복 페이지 발견`, 'warning');
+          this.log(`연속 중복 페이지 발견`, 'warning');
           shouldContinue = false;
           return { jobs: pageJobs, shouldContinue };
         }
@@ -771,8 +771,7 @@ export default class ScraperControlService extends ScraperServiceABC {
 
         const resizedImagePath = path.join(this.tempDir, `${uuidv4()}.png`);
         fs.writeFileSync(resizedImagePath, resizedImageBuffer);
-        
-        // Convert to base64 data URL instead of file URL
+
         const base64Image = resizedImageBuffer.toString('base64');
         return `data:image/png;base64,${base64Image}`;
       }
