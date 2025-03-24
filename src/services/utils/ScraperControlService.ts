@@ -602,9 +602,11 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       // 추출된 직무 설명 텍스트 정리
       const cleanedContent = this.cleanJobDescription(directContent);
+      // 추가: Mistral 모델을 사용하여 텍스트 개선
+      const improvedContent = await this.improveTextWithMistral(cleanedContent);
       
       return {
-        content: cleanedContent,
+        content: improvedContent,
         type: 'text'
       };
     } catch (error) {
@@ -643,7 +645,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         console.log('이미지 콘텐츠 감지: OCR 처리 시작');
         const result = await this.processOCR(iframePage);
         if (result) {
-          ocrContent = this.cleanJobDescription(result.content);
+          ocrContent = result.content;
           console.log(`OCR 처리 완료 (${ocrContent.length}자)`);
         }
       }
@@ -655,13 +657,15 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       // 추출된 텍스트 정리
       const cleanedTextContent = this.cleanJobDescription(textContent);
-      console.log(`텍스트 추출 완료 (${cleanedTextContent.length}자)`);
+      // 추가: Mistral 모델을 사용하여 텍스트 개선
+      const improvedTextContent = await this.improveTextWithMistral(cleanedTextContent);
+      console.log(`텍스트 추출 및 개선 완료 (${improvedTextContent.length}자)`);
 
-      let finalContent = cleanedTextContent;
+      let finalContent = improvedTextContent;
       let contentType = 'text';
 
       if (ocrContent) {
-        finalContent = `${ocrContent}\n${cleanedTextContent}`;
+        finalContent = `${ocrContent}\n${improvedTextContent}`;
         contentType = 'ocr+text';
       }
       
@@ -716,8 +720,10 @@ export default class ScraperControlService extends ScraperServiceABC {
           if (imageText) {
             // OCR로 추출된 텍스트 정리
             const cleanedImageText = this.cleanJobDescription(imageText);
-            allText += cleanedImageText + '\n\n';
-            console.log(`이미지 ${i + 1} OCR 완료 (${cleanedImageText.length}자)`);
+            // 추가: Mistral 모델을 사용하여 텍스트 개선
+            const improvedText = await this.improveTextWithMistral(cleanedImageText);
+            allText += improvedText + '\n\n';
+            console.log(`이미지 ${i + 1} OCR 완료 및 텍스트 개선 (${improvedText.length}자)`);
           }
         } catch (error) {
           console.error(`이미지 ${i + 1} 처리 중 오류:`, error);
@@ -751,8 +757,10 @@ export default class ScraperControlService extends ScraperServiceABC {
       const ocrResult = await this.processImageWithOCR(dataUrl);
       // OCR 결과 텍스트 정리
       const cleanedOcrResult = this.cleanJobDescription(ocrResult);
+      // 추가: Mistral 모델을 사용하여 텍스트 개선
+      const improvedText = await this.improveTextWithMistral(cleanedOcrResult);
       return {
-        content: cleanedOcrResult,
+        content: improvedText,
         type: 'ocr'
       };
     } catch (error) {
@@ -859,6 +867,20 @@ export default class ScraperControlService extends ScraperServiceABC {
                      .replace(/&quot;/g, '"')
                      .replace(/&#39;/g, "'");
     
+    // 한글 자음/모음만 있는 무의미한 패턴 제거 (ㅁㄴㅇㄹ, ㅋㅋ 등)
+    cleaned = cleaned.replace(/[ㄱ-ㅎㅏ-ㅣ]{2,}/g, '');
+    
+    // 마크다운 헤더 형식 정리 (## 제목 -> 제목)
+    cleaned = cleaned.replace(/^#+\s+/gm, '');
+    
+    // 테이블 포맷 정리
+    cleaned = cleaned.replace(/\|[\s-:|]*\|/g, '\n'); // 테이블 구분선 제거
+    cleaned = cleaned.replace(/\|\s*([^|]*)\s*\|/g, '$1\n'); // 테이블 셀 텍스트 추출
+    
+    // LaTeX 스타일 문법 정리
+    cleaned = cleaned.replace(/\$\\checkmark\$/g, '✓');
+    cleaned = cleaned.replace(/\$(\d+)\s*\\%\$/g, '$1%');
+    
     // 연속된 공백 문자를 단일 공백으로 치환
     cleaned = cleaned.replace(/\s+/g, ' ');
     
@@ -888,6 +910,64 @@ export default class ScraperControlService extends ScraperServiceABC {
     cleaned = cleaned.trim();
     
     return cleaned;
+  }
+
+  /**
+   * Mistral AI를 사용하여 텍스트 개선
+   */
+  private async improveTextWithMistral(text: string): Promise<string> {
+    if (!text || text.length < 10) return text;
+    if (!this.mistralClient) return text;
+    
+    try {
+      console.log('\nMistral AI를 사용하여 텍스트 개선 중...');
+      
+      const prompt = `
+당신은 채용 공고 텍스트를 깔끔하게 정리하는 전문가입니다. 
+다음 텍스트는 OCR 또는 웹 스크래핑으로 추출된 채용 공고입니다. 
+이 텍스트를 보기 좋고 이해하기 쉬운 형태로 정리해주세요.
+
+텍스트를 정리할 때 다음 규칙을 따라주세요:
+1. 무의미한 특수 문자, 기호, 랜덤 문자를 제거하세요.
+2. 테이블 형식은 일반 텍스트로 변환하세요.
+3. 문단과 구조를 자연스럽게 유지하세요.
+4. 채용 정보의 핵심 내용(직무 설명, 자격 요건, 우대사항, 복리후생 등)은 반드시 유지하세요.
+5. 이메일, URL, 회사명, 지원 방법 등 중요 정보는 정확히 보존하세요.
+6. 전체 내용을 요약하지 말고, 불필요한 텍스트만 제거하여 원본의 모든 정보를 유지하세요.
+
+텍스트:
+${text}
+
+정리된 텍스트:`;
+
+      const response = await this.mistralClient.chat.complete({
+        model: "mistral-small-latest",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1, // 낮은 온도로 일관된 결과 유도
+        maxTokens: 4096  // 충분한 토큰 할당
+      });
+
+      const content = response?.choices?.[0]?.message?.content || text;
+      // Handle case where content could be string or ContentChunk[]
+      const improvedText = typeof content === 'string' 
+        ? content 
+        : Array.isArray(content) 
+          ? content
+              .map(chunk => {
+                // Handle different content chunk types safely
+                if (typeof chunk === 'string') return chunk;
+                // For text chunks
+                if ('text' in chunk && typeof chunk.text === 'string') return chunk.text;
+                // Return empty string for other chunk types (like image_url)
+                return '';
+              })
+              .join('') 
+        : text;
+      return improvedText.trim();
+    } catch (error) {
+      console.error('Mistral AI 텍스트 개선 중 오류:', error);
+      return text; // 오류 발생 시 원본 텍스트 반환
+    }
   }
 
   /**
