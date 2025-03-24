@@ -331,7 +331,7 @@ export default class ScraperControlService extends ScraperServiceABC {
             const fullUrl = newUrls[i];
             // 메인 프로그레스바 상태 텍스트 업데이트
             if (this.progressBar) {
-              this.progressBar.update(this.progressBar.value, {
+              this.progressBar.increment(0, {
                 startText: `페이지 ${pageNum} | 채용공고 ${i+1}/${newUrls.length}`
               });
             }
@@ -352,7 +352,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         
         // 메인 프로그레스바 원래 상태로 복원
         if (this.progressBar) {
-          this.progressBar.update(this.progressBar.value, {
+          this.progressBar.update(pageNum, {
             startText: '페이지 진행률:'
           });
         }
