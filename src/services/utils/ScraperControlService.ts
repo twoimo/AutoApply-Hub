@@ -1,15 +1,21 @@
-import { ScraperServiceABC, sleep } from "@qillie/wheel-micro-service";
-import _ from "lodash";
-import sequelize from "sequelize";
-import axios from "axios";
-import puppeteer, { Browser, Page } from "puppeteer";
-import CompanyRecruitmentTable from "../../models/main/CompanyRecruitmentTable";
-import { Mistral } from '@mistralai/mistralai';
+// Node.js 내장 모듈
 import fs from 'fs';
 import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+
+// 서드파티 라이브러리 
+import { Mistral } from '@mistralai/mistralai';
+import { ScraperServiceABC, sleep } from "@qillie/wheel-micro-service";
+import colors from 'ansi-colors';
+import axios from "axios";
+import cliProgress from 'cli-progress';
 import dotenv from 'dotenv';
+import puppeteer, { Browser, Page } from "puppeteer";
+import sequelize from "sequelize";
 import sharp from 'sharp';
+import { v4 as uuidv4 } from 'uuid';
+
+// 내부 모듈
+import CompanyRecruitmentTable from "../../models/main/CompanyRecruitmentTable";
 
 // 환경 변수 로드
 dotenv.config();
@@ -55,6 +61,9 @@ export default class ScraperControlService extends ScraperServiceABC {
   // 이미지 처리를 위한 임시 디렉토리
   private readonly tempDir = path.join(process.cwd(), 'temp');
 
+  // 프로그레스바 인스턴스
+  private progressBar: cliProgress.SingleBar | null = null;
+
   constructor() {
     super([]);
     this.initializeMistralClient();
@@ -87,6 +96,32 @@ export default class ScraperControlService extends ScraperServiceABC {
   }
 
   /**
+   * 프로그레스바 생성 및 초기화
+   */
+  private initializeProgressBar(total: number, startText: string): void {
+    // 이미 존재하는 프로그레스바 정리
+    if (this.progressBar) {
+      this.progressBar.stop();
+    }
+
+    // 멀티바 포맷 설정
+    const progressBarFormat = `${startText} ${colors.cyan('{bar}')} {percentage}% | {value}/{total} | 경과시간: {duration_formatted} | 남은시간: {eta_formatted}`;
+    
+    // 프로그레스바 생성
+    this.progressBar = new cliProgress.SingleBar({
+      format: progressBarFormat,
+      barCompleteChar: '\u2588',
+      barIncompleteChar: '\u2591',
+      hideCursor: true,
+      clearOnComplete: false,
+      stopOnComplete: true
+    }, cliProgress.Presets.shades_classic);
+    
+    // 프로그레스바 시작
+    this.progressBar.start(total, 0);
+  }
+
+  /**
    * 사람인 채용 공고 스크래핑 시작
    */
   public async openSaramin(config: ScraperConfig = {}): Promise<JobInfo[]> {
@@ -102,16 +137,34 @@ export default class ScraperControlService extends ScraperServiceABC {
     
     let consecutiveDuplicates = 0;
     let continueScrapping = true;
+    
+    // 프로그레스바 초기화 (페이지 기준)
+    const estimatedPages = Math.min(endPage - startPage + 1, 20); // 초기 예상 페이지 수
+    this.initializeProgressBar(estimatedPages, '페이지 진행률:');
   
     try {
       browser = await this.initializeBrowser(headless);
       const page = await browser.newPage();
       page.setDefaultTimeout(30000);
+      
+      let processedPages = 0;
   
       for (let i = startPage; i <= endPage && continueScrapping; i++) {
         console.log(`\n페이지 ${i} 스크래핑 중...`);
         
         const pageJobs = await this.processSaraminPage(page, i, waitTime, consecutiveDuplicates, continueScrapping);
+        
+        // 프로그레스바 업데이트
+        processedPages++;
+        if (this.progressBar) {
+          this.progressBar.update(processedPages);
+          
+          // 예상 총 페이지 수 업데이트 (필요시)
+          if (processedPages >= this.progressBar.getTotal() && continueScrapping) {
+            const newTotal = processedPages + 5; // 더 많은 페이지가 있을 것으로 예상
+            this.progressBar.setTotal(newTotal);
+          }
+        }
         
         if (pageJobs.length === 0) {
           console.log(`\n페이지 ${i}에서 채용 공고를 찾을 수 없습니다. 스크래핑을 종료합니다.`);
@@ -136,6 +189,11 @@ export default class ScraperControlService extends ScraperServiceABC {
         console.log(`페이지 ${i} 완료: ${pageJobs.length}개 채용 공고 추출됨`);
       }
       
+      // 프로그레스바 완료 처리
+      if (this.progressBar) {
+        this.progressBar.stop();
+      }
+      
       this.printSummary(collectedJobs);
       
       const elapsedTime = (Date.now() - startTime) / 1000;
@@ -144,6 +202,12 @@ export default class ScraperControlService extends ScraperServiceABC {
       return collectedJobs;
     } catch (error) {
       console.error(`스크래핑 중 오류 발생:`, error);
+      
+      // 오류 발생 시 프로그레스바 중지
+      if (this.progressBar) {
+        this.progressBar.stop();
+      }
+      
       return collectedJobs;
     } finally {
       if (browser) {
@@ -225,20 +289,52 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       const newUrls = urlsToCheck.filter(url => !existingUrls.includes(url));
       
-      for (const fullUrl of newUrls) {
-        try {
-          const randomWaitTime = Math.floor(Math.random() * 2001) + 4000;
-          const jobInfo = await this.extractJobDetails(page, fullUrl, randomWaitTime);
-          
-          if (jobInfo) {
-            jobInfo.url = fullUrl;
-            pageJobs.push(jobInfo);
-            await this.saveJobToDatabase(jobInfo, fullUrl);
+      // 채용공고 상세정보 프로그레스바 초기화
+      if (newUrls.length > 0) {
+        // 기존 페이지 프로그레스바 임시 중지
+        const mainProgressBar = this.progressBar;
+        
+        // 채용공고 처리용 새 프로그레스바 생성
+        this.initializeProgressBar(newUrls.length, `페이지 ${pageNum} 채용공고 처리:`);
+        
+        let processedJobs = 0;
+        
+        for (const fullUrl of newUrls) {
+          try {
+            const randomWaitTime = Math.floor(Math.random() * 2001) + 4000;
+            const jobInfo = await this.extractJobDetails(page, fullUrl, randomWaitTime);
+            
+            if (jobInfo) {
+              jobInfo.url = fullUrl;
+              pageJobs.push(jobInfo);
+              await this.saveJobToDatabase(jobInfo, fullUrl);
+            }
+            
+            // 상세정보 프로그레스바 업데이트
+            processedJobs++;
+            if (this.progressBar) {
+              this.progressBar.update(processedJobs);
+            }
+          } catch (error) {
+            console.error(`채용 상세 정보 추출 오류: ${error}`);
+            
+            // 오류 발생해도 프로그레스바 업데이트
+            processedJobs++;
+            if (this.progressBar) {
+              this.progressBar.update(processedJobs);
+            }
+            
+            continue;
           }
-        } catch (error) {
-          console.error(`채용 상세 정보 추출 오류: ${error}`);
-          continue;
         }
+        
+        // 채용공고 처리 프로그레스바 정리
+        if (this.progressBar) {
+          this.progressBar.stop();
+        }
+        
+        // 원래 페이지 프로그레스바 복원
+        this.progressBar = mainProgressBar;
       }
       
     } catch (error) {
