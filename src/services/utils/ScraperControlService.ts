@@ -600,8 +600,11 @@ export default class ScraperControlService extends ScraperServiceABC {
         return detailSection?.textContent?.trim() || '';
       });
       
+      // 추출된 직무 설명 텍스트 정리
+      const cleanedContent = this.cleanJobDescription(directContent);
+      
       return {
-        content: directContent,
+        content: cleanedContent,
         type: 'text'
       };
     } catch (error) {
@@ -640,7 +643,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         console.log('이미지 콘텐츠 감지: OCR 처리 시작');
         const result = await this.processOCR(iframePage);
         if (result) {
-          ocrContent = result.content;
+          ocrContent = this.cleanJobDescription(result.content);
           console.log(`OCR 처리 완료 (${ocrContent.length}자)`);
         }
       }
@@ -649,13 +652,16 @@ export default class ScraperControlService extends ScraperServiceABC {
         const contentElement = document.querySelector('body');
         return contentElement?.innerText || '';
       });
-      console.log(`텍스트 추출 완료 (${textContent.length}자)`);
+      
+      // 추출된 텍스트 정리
+      const cleanedTextContent = this.cleanJobDescription(textContent);
+      console.log(`텍스트 추출 완료 (${cleanedTextContent.length}자)`);
 
-      let finalContent = textContent;
+      let finalContent = cleanedTextContent;
       let contentType = 'text';
 
       if (ocrContent) {
-        finalContent = `[OCR 내용]\n${ocrContent}\n\n[텍스트 내용]\n${textContent}`;
+        finalContent = `${ocrContent}\n${cleanedTextContent}`;
         contentType = 'ocr+text';
       }
       
@@ -708,8 +714,10 @@ export default class ScraperControlService extends ScraperServiceABC {
         try {
           const imageText = await this.processImageWithOCR(imageUrls[i]);
           if (imageText) {
-            allText += imageText + '\n\n';
-            console.log(`이미지 ${i + 1} OCR 완료 (${imageText.length}자)`);
+            // OCR로 추출된 텍스트 정리
+            const cleanedImageText = this.cleanJobDescription(imageText);
+            allText += cleanedImageText + '\n\n';
+            console.log(`이미지 ${i + 1} OCR 완료 (${cleanedImageText.length}자)`);
           }
         } catch (error) {
           console.error(`이미지 ${i + 1} 처리 중 오류:`, error);
@@ -741,8 +749,10 @@ export default class ScraperControlService extends ScraperServiceABC {
       const dataUrl = `data:image/png;base64,${base64Image}`;
       
       const ocrResult = await this.processImageWithOCR(dataUrl);
+      // OCR 결과 텍스트 정리
+      const cleanedOcrResult = this.cleanJobDescription(ocrResult);
       return {
-        content: ocrResult,
+        content: cleanedOcrResult,
         type: 'ocr'
       };
     } catch (error) {
@@ -828,6 +838,56 @@ export default class ScraperControlService extends ScraperServiceABC {
       console.error('이미지 크기 조정 중 오류:', error);
       return imageUrl; // 크기 조정 실패 시 원본 URL 반환
     }
+  }
+
+  /**
+   * 직무 설명 텍스트 정리 (정규식 적용)
+   */
+  private cleanJobDescription(text: string): string {
+    if (!text) return '';
+    
+    let cleaned = text;
+    
+    // HTML 태그 제거
+    cleaned = cleaned.replace(/<[^>]*>/g, ' ');
+    
+    // HTML 엔티티 디코딩 (&nbsp;, &amp; 등)
+    cleaned = cleaned.replace(/&nbsp;/g, ' ')
+                     .replace(/&amp;/g, '&')
+                     .replace(/&lt;/g, '<')
+                     .replace(/&gt;/g, '>')
+                     .replace(/&quot;/g, '"')
+                     .replace(/&#39;/g, "'");
+    
+    // 연속된 공백 문자를 단일 공백으로 치환
+    cleaned = cleaned.replace(/\s+/g, ' ');
+    
+    // 연속된 줄바꿈을 최대 2개로 제한
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+    
+    // 불필요한 특수문자 패턴 제거
+    cleaned = cleaned.replace(/[^\S\n]+\n/g, '\n')  // 줄바꿈 전 공백 제거
+                     .replace(/\n[^\S\n]+/g, '\n'); // 줄바꿈 후 공백 제거
+    
+    // 문단 시작의 불필요한 기호 제거 (-, *, •, ▶, ■ 등)
+    cleaned = cleaned.replace(/^[\s-•*▶■●★☆◆□]+/gm, '');
+    
+    // URL 형식 정리 (URL 앞뒤 공백 추가)
+    cleaned = cleaned.replace(/(https?:\/\/[^\s]+)/g, ' $1 ');
+    
+    // 이메일 형식 정리 (이메일 앞뒤 공백 추가)
+    cleaned = cleaned.replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, ' $1 ');
+    
+    // 중복 공백 제거 (정리 과정에서 생긴 추가 공백 제거)
+    cleaned = cleaned.replace(/\s+/g, ' ');
+    
+    // 줄 시작과 끝의 공백 제거
+    cleaned = cleaned.replace(/^\s+|\s+$/gm, '');
+    
+    // 전체 텍스트 앞뒤 공백 제거
+    cleaned = cleaned.trim();
+    
+    return cleaned;
   }
 
   /**
