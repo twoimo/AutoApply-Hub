@@ -591,8 +591,6 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       // 추출된 텍스트 정리
       const cleanedTextContent = this.cleanJobDescription(textContent);
-      // 추가: Mistral 모델을 사용하여 텍스트 개선
-      // console.log(`\n텍스트 추출 및 개선 완료 (${improvedTextContent.length}자)`);
 
       let finalContent = cleanedTextContent;
       let contentType = 'text';
@@ -601,9 +599,10 @@ export default class ScraperControlService extends ScraperServiceABC {
         finalContent = `${ocrContent}\n${cleanedTextContent}`;
         contentType = 'ocr+text';
       }
-      
+
+      const improvedFinalContent = await this.improveTextWithMistral(finalContent);
       return {
-        content: finalContent,
+        content: improvedFinalContent,
         type: contentType
       };
     } catch (error) {
