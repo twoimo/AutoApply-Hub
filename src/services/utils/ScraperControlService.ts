@@ -10,12 +10,13 @@ import axios from "axios";
 import cliProgress from 'cli-progress';
 import dotenv from 'dotenv';
 import puppeteer, { Browser, Page } from "puppeteer";
-import sequelize from "sequelize";
 import sharp from 'sharp';
 import { v4 as uuidv4 } from 'uuid';
 
 // 내부 모듈
 import CompanyRecruitmentTable from "../../models/main/CompanyRecruitmentTable";
+import { OcrImageProcessor } from "./OcrImageProcessor";
+import sequelize from 'sequelize';
 
 // 환경 변수 로드
 dotenv.config();
@@ -67,6 +68,12 @@ export default class ScraperControlService extends ScraperServiceABC {
   // 로그 출력 제어 플래그
   private verboseLogging: boolean = false;
 
+  // 이미지 OCR 처리 유틸리티
+  private ocrImageProcessor: OcrImageProcessor | null = null;
+  
+  // 텍스트 개선을 위해 저장할 임시 컬렉션
+  private pendingTextImprovements: Map<string, { id: number, text: string, type: string }> = new Map();
+
   constructor() {
     super([]);
     this.initializeMistralClient();
@@ -81,10 +88,13 @@ export default class ScraperControlService extends ScraperServiceABC {
     if (apiKey) {
       try {
         this.mistralClient = new Mistral({ apiKey });
+        // OCR 이미지 프로세서 초기화 (텍스트 개선 지연 활성화)
+        this.ocrImageProcessor = new OcrImageProcessor(this.mistralClient, this.tempDir, true);
         console.log('✅ Mistral AI API 클라이언트 초기화 완료');
       } catch (error) {
         console.error('❌ Mistral AI API 클라이언트 초기화 실패:', error);
         this.mistralClient = null;
+        this.ocrImageProcessor = null;
       }
     }
   }
@@ -231,6 +241,9 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       this.printSummary(collectedJobs);
       
+      // 수집된 모든 채용 정보의 텍스트 개선 처리
+      await this.processTextImprovements();
+      
       const elapsedTime = (Date.now() - startTime) / 1000;
       this.log(`총 소요 시간: ${elapsedTime.toFixed(2)}초`, 'success');
       
@@ -369,7 +382,7 @@ export default class ScraperControlService extends ScraperServiceABC {
    * 채용 정보를 데이터베이스에 저장
    */
   private async saveJobToDatabase(jobInfo: JobInfo, url: string): Promise<void> {
-    await CompanyRecruitmentTable.create({
+    const record = await CompanyRecruitmentTable.create({
       company_name: jobInfo.companyName,
       job_title: jobInfo.jobTitle,
       job_location: jobInfo.jobLocation,
@@ -384,6 +397,15 @@ export default class ScraperControlService extends ScraperServiceABC {
       scraped_at: new Date(),
       is_applied: false
     });
+
+    // 개선이 필요한 텍스트가 있으면 나중에 일괄 처리하기 위해 저장
+    if (jobInfo.jobDescription && jobInfo.jobDescription.length > 10) {
+      this.pendingTextImprovements.set(url, {
+        id: record.id,
+        text: jobInfo.jobDescription,
+        type: jobInfo.descriptionType || "text"
+      });
+    }
 
     // 간소화된 로그 형식 적용
     this.logVerbose(`채용 정보 저장: ${jobInfo.companyName} - ${jobInfo.jobTitle}`);
@@ -435,10 +457,6 @@ export default class ScraperControlService extends ScraperServiceABC {
    */
   private async extractJobDetails(page: Page, url: string, waitTime: number): Promise<JobInfo | null> {
     try {
-      console.log(`\n=============================`);
-      console.log(`채용 상세 정보 처리 중: ${url}`);
-      console.log(`=============================`);
-      
       await page.goto(url, { waitUntil: "networkidle2" });
       await sleep(waitTime);
 
@@ -617,11 +635,10 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       // 추출된 직무 설명 텍스트 정리
       const cleanedContent = this.cleanJobDescription(directContent);
-      // Mistral 모델을 사용하여 텍스트 개선
-      const improvedContent = await this.improveTextWithMistral(cleanedContent);
+      // 텍스트 개선은 나중에 일괄 처리
       
       return {
-        content: improvedContent,
+        content: cleanedContent,
         type: 'text'
       };
     } catch (error) {
@@ -672,15 +689,14 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       // 추출된 텍스트 정리
       const cleanedTextContent = this.cleanJobDescription(textContent);
-      // 추가: Mistral 모델을 사용하여 텍스트 개선
-      const improvedTextContent = await this.improveTextWithMistral(cleanedTextContent);
-      console.log(`\n텍스트 추출 및 개선 완료 (${improvedTextContent.length}자)`);
+      // 텍스트 개선은 나중에 일괄 처리함
+      console.log(`\n텍스트 추출 완료 (${cleanedTextContent.length}자)`);
 
-      let finalContent = improvedTextContent;
+      let finalContent = cleanedTextContent;
       let contentType = 'text';
 
       if (ocrContent) {
-        finalContent = `${ocrContent}\n${improvedTextContent}`;
+        finalContent = `${ocrContent}\n${cleanedTextContent}`;
         contentType = 'ocr+text';
       }
       
@@ -720,28 +736,28 @@ export default class ScraperControlService extends ScraperServiceABC {
       });
 
       if (!imageUrls.length) {
-        console.log('OCR 처리를 위한 이미지를 찾을 수 없음');
+        this.log('OCR 처리를 위한 이미지를 찾을 수 없음', 'warning');
         return await this.processPageScreenshot(page);
       }
       
-      // console.log(`\nOCR 처리를 위한 이미지 ${imageUrls.length}개 발견`);
-
       let allText = '';
       for (let i = 0; i < imageUrls.length; i++) {
-        // console.log(`\n이미지 ${i + 1}/${imageUrls.length} 처리 중`);
-        
         try {
-          const imageText = await this.processImageWithOCR(imageUrls[i]);
+          this.log(`이미지 ${i + 1}/${imageUrls.length} 처리 중`, 'info');
+          
+          // OCR 이미지 프로세서 사용 (중복 코드 제거)
+          let imageText = this.ocrImageProcessor 
+            ? await this.ocrImageProcessor.processImageWithOCR(imageUrls[i])
+            : await this.processImageWithOCR(imageUrls[i]);
+          
           if (imageText) {
-            // OCR로 추출된 텍스트 정리
             const cleanedImageText = this.cleanJobDescription(imageText);
-            // 추가: Mistral 모델을 사용하여 텍스트 개선
             const improvedText = await this.improveTextWithMistral(cleanedImageText);
             allText += improvedText + '\n\n';
-            console.log(`\n이미지 ${i + 1} OCR 완료 및 텍스트 개선 (${improvedText.length}자)`);
+            this.logVerbose(`이미지 ${i + 1} OCR 완료 및 텍스트 개선 (${improvedText.length}자)`);
           }
         } catch (error) {
-          console.error(`\n이미지 ${i + 1} 처리 중 오류:`, error);
+          this.log(`이미지 ${i + 1} 처리 중 오류: ${error}`, 'error');
         }
       }
 
@@ -750,7 +766,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         type: 'ocr'
       };
     } catch (error) {
-      console.error('OCR 처리 중 오류:', error);
+      this.log('OCR 처리 중 오류: ' + error, 'error');
       return null;
     }
   }
@@ -759,27 +775,28 @@ export default class ScraperControlService extends ScraperServiceABC {
    * 이미지가 없을 때 페이지 스크린샷 OCR 처리
    */
   private async processPageScreenshot(page: Page): Promise<{ content: string; type: string } | null> {
-    console.log('전체 페이지 스크린샷을 OCR 처리에 사용');
+    this.log('전체 페이지 스크린샷을 OCR 처리에 사용', 'info');
     const screenshotPath = path.join(this.tempDir, `${uuidv4()}.png`);
     
     try {
       await page.screenshot({ path: screenshotPath, fullPage: true });
       
-      const imageBuffer = fs.readFileSync(screenshotPath);
-      const base64Image = imageBuffer.toString('base64');
-      const dataUrl = `data:image/png;base64,${base64Image}`;
+      let ocrResult = '';
+      const fileUrl = `file://${screenshotPath}`;
       
-      const ocrResult = await this.processImageWithOCR(dataUrl);
-      // OCR 결과 텍스트 정리
+      // OcrImageProcessor 활용하여 중복 제거
+      ocrResult = this.ocrImageProcessor 
+        ? await this.ocrImageProcessor.processImageWithOCR(fileUrl)
+        : await this.processImageWithOCR(fileUrl);
+      
       const cleanedOcrResult = this.cleanJobDescription(ocrResult);
-      // 추가: Mistral 모델을 사용하여 텍스트 개선
       const improvedText = await this.improveTextWithMistral(cleanedOcrResult);
       return {
         content: improvedText,
         type: 'ocr'
       };
     } catch (error) {
-      console.error('페이지 스크린샷 처리 중 오류:', error);
+      this.log('페이지 스크린샷 처리 중 오류: ' + error, 'error');
       return null;
     } finally {
       if (fs.existsSync(screenshotPath)) {
@@ -796,18 +813,23 @@ export default class ScraperControlService extends ScraperServiceABC {
       throw new Error('Mistral API 클라이언트가 초기화되지 않음');
     }
 
+    // OcrImageProcessor가 이미 초기화되어 있다면 활용
+    if (this.ocrImageProcessor) {
+      return await this.ocrImageProcessor.processImageWithOCR(imageUrl);
+    }
+
+    // 기존 폴백 로직은 유지하되 중복 제거
     const maxRetries = 3;
     let attempt = 0;
 
     while (attempt < maxRetries) {
       try {
-        const resizedImageUrl = await this.resizeImageIfNeeded(imageUrl);
-
+        // resizeImageIfNeeded 호출 제거 (OcrImageProcessor로 이전)
         const ocrResponse = await this.mistralClient.ocr.process({
           model: "mistral-ocr-latest",
           document: {
             type: "image_url",
-            imageUrl: resizedImageUrl,
+            imageUrl: imageUrl,
           }
         });
 
@@ -829,38 +851,6 @@ export default class ScraperControlService extends ScraperServiceABC {
     }
 
     throw new Error('OCR 처리 실패: 최대 재시도 횟수 초과');
-  }
-
-  /**
-   * 필요시 이미지 크기 조정
-   */
-  private async resizeImageIfNeeded(imageUrl: string): Promise<string> {
-    const maxWidth = 10000;
-    const maxHeight = 10000;
-
-    try {
-      const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-      const imageBuffer = Buffer.from(response.data, 'binary');
-      const image = await sharp(imageBuffer);
-      const metadata = await image.metadata();
-
-      if ((metadata.width && metadata.width > maxWidth) || (metadata.height && metadata.height > maxHeight)) {
-        const resizedImageBuffer = await image.resize(maxWidth, maxHeight, {
-          fit: sharp.fit.inside,
-          withoutEnlargement: true
-        }).toBuffer();
-
-        const resizedImagePath = path.join(this.tempDir, `${uuidv4()}.png`);
-        fs.writeFileSync(resizedImagePath, resizedImageBuffer);
-
-        return `file://${resizedImagePath}`;
-      }
-
-      return imageUrl;
-    } catch (error) {
-      console.error('이미지 크기 조정 중 오류:', error);
-      return imageUrl; // 크기 조정 실패 시 원본 URL 반환
-    }
   }
 
   /**
@@ -1082,5 +1072,81 @@ export default class ScraperControlService extends ScraperServiceABC {
       });
     
     console.log(colors.yellow.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
+  }
+
+  /**
+   * 텍스트 개선 일괄 처리
+   */
+  private async processTextImprovements(): Promise<void> {
+    if (!this.ocrImageProcessor || this.pendingTextImprovements.size === 0) {
+      return;
+    }
+    
+    this.log(`\n텍스트 개선 일괄 처리 시작 (총 ${this.pendingTextImprovements.size}개)`, 'info');
+    
+    // 일괄 처리를 위한 프로그레스바 초기화
+    if (this.progressBar) {
+      this.progressBar.stop();
+    }
+    
+    this.initializeProgressBar(this.pendingTextImprovements.size, '텍스트 개선 진행률:');
+    
+    // 텍스트 개선 모드 비활성화 (실제 개선 처리를 위해)
+    this.ocrImageProcessor.setDeferTextImprovement(false);
+    
+    let processed = 0;
+    const batchSize = 5; // 한 번에 처리할 배치 크기
+    const entries = Array.from(this.pendingTextImprovements.entries());
+    
+    for (let i = 0; i < entries.length; i += batchSize) {
+      const batch = entries.slice(i, i + batchSize);
+      
+      for (const [url, data] of batch) {
+        try {
+          if (this.progressBar) {
+            this.progressBar.update(processed, {
+              startText: `텍스트 개선 ${processed+1}/${this.pendingTextImprovements.size}`
+            });
+          }
+          
+          const improvedText = await this.ocrImageProcessor.improveTextWithMistral(data.text);
+          
+          // 개선된 텍스트로 DB 업데이트
+          await CompanyRecruitmentTable.update(
+            { job_description: improvedText },
+            { where: { id: data.id } }
+          );
+          
+          processed++;
+          
+          if (this.progressBar) {
+            this.progressBar.update(processed);
+          }
+          
+        } catch (error) {
+          this.log(`텍스트 개선 실패 (ID: ${data.id}): ${error}`, 'error');
+          processed++;
+          
+          if (this.progressBar) {
+            this.progressBar.update(processed);
+          }
+        }
+      }
+      
+      // 배치 간 지연 (API 속도 제한 방지)
+      if (i + batchSize < entries.length) {
+        this.log(`다음 배치 처리까지 10초 대기...`, 'info');
+        await new Promise(resolve => setTimeout(resolve, 10000));
+      }
+    }
+    
+    if (this.progressBar) {
+      this.progressBar.stop();
+    }
+    
+    this.log(`텍스트 개선 완료: ${processed}/${this.pendingTextImprovements.size}개 처리됨`, 'success');
+    
+    // 처리 완료 후 맵 비우기
+    this.pendingTextImprovements.clear();
   }
 }
