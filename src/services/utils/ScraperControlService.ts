@@ -108,7 +108,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     }
 
     // 프로그레스바 포맷 설정
-    const progressBarFormat = `${colors.yellow(startText)} ${colors.cyan('{bar}')} ${colors.green('{percentage}%')} | ${colors.blue('{value}/{total}')} | 경과: {duration_formatted} | 남은시간: {eta_formatted}`;
+    const progressBarFormat = `${colors.yellow(startText)} ${colors.cyan('{bar}')} ${colors.green('{percentage}%')} | ${colors.blue('{value}/{total}')} | 경과: {duration_formatted}`;
     
     // 프로그레스바 생성
     this.progressBar = new cliProgress.SingleBar({
@@ -185,7 +185,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       let processedPages = 0;
   
       for (let i = startPage; i <= endPage && continueScrapping; i++) {
-        this.log(`페이지 ${i} 처리 중...`);
+        this.log(`\t페이지 ${i} 처리 중...`);
         
         const pageJobs = await this.processSaraminPage(page, i, waitTime, consecutiveDuplicates, continueScrapping);
         
@@ -657,11 +657,11 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       let ocrContent = '';
       if (isImageContent) {
-        console.log('이미지 콘텐츠 감지: OCR 처리 시작');
+        console.log('\n이미지 콘텐츠 감지: OCR 처리 시작');
         const result = await this.processOCR(iframePage);
         if (result) {
           ocrContent = result.content;
-          console.log(`OCR 처리 완료 (${ocrContent.length}자)`);
+          console.log(`\nOCR 처리 완료 (${ocrContent.length}자)`);
         }
       }
 
@@ -674,7 +674,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       const cleanedTextContent = this.cleanJobDescription(textContent);
       // 추가: Mistral 모델을 사용하여 텍스트 개선
       const improvedTextContent = await this.improveTextWithMistral(cleanedTextContent);
-      console.log(`텍스트 추출 및 개선 완료 (${improvedTextContent.length}자)`);
+      console.log(`\n텍스트 추출 및 개선 완료 (${improvedTextContent.length}자)`);
 
       let finalContent = improvedTextContent;
       let contentType = 'text';
@@ -738,10 +738,10 @@ export default class ScraperControlService extends ScraperServiceABC {
             // 추가: Mistral 모델을 사용하여 텍스트 개선
             const improvedText = await this.improveTextWithMistral(cleanedImageText);
             allText += improvedText + '\n\n';
-            console.log(`이미지 ${i + 1} OCR 완료 및 텍스트 개선 (${improvedText.length}자)`);
+            console.log(`\n이미지 ${i + 1} OCR 완료 및 텍스트 개선 (${improvedText.length}자)`);
           }
         } catch (error) {
-          console.error(`이미지 ${i + 1} 처리 중 오류:`, error);
+          console.error(`\n이미지 ${i + 1} 처리 중 오류:`, error);
         }
       }
 
@@ -938,22 +938,42 @@ export default class ScraperControlService extends ScraperServiceABC {
       this.logVerbose('Mistral AI를 사용하여 텍스트 개선 중...');
       
       const prompt = `
-당신은 채용 공고 텍스트를 깔끔하게 정리하는 전문가입니다. 
-다음 텍스트는 OCR 또는 웹 스크래핑으로 추출된 채용 공고입니다. 
-이 텍스트를 보기 좋고 이해하기 쉬운 형태로 정리해주세요.
+            당신은 채용 공고 텍스트를 깔끔하게 정리하는 전문가입니다. 
+            다음 텍스트는 OCR 또는 웹 스크래핑으로 추출된 채용 공고입니다. 
+            이 텍스트를 보기 좋고 이해하기 쉬운 형태로 정리해주세요.
 
-텍스트를 정리할 때 다음 규칙을 따라주세요:
-1. 무의미한 특수 문자, 기호, 랜덤 문자를 제거하세요.
-2. 테이블 형식은 일반 텍스트로 변환하세요.
-3. 문단과 구조를 자연스럽게 유지하세요.
-4. 채용 정보의 핵심 내용(직무 설명, 자격 요건, 우대사항, 복리후생 등)은 반드시 유지하세요.
-5. 이메일, URL, 회사명, 지원 방법 등 중요 정보는 정확히 보존하세요.
-6. 전체 내용을 요약하지 말고, 불필요한 텍스트만 제거하여 원본의 모든 정보를 유지하세요.
+            텍스트를 정리할 때 다음 규칙을 따라주세요:
+            1. 무의미한 특수 문자, 기호, 랜덤 문자를 제거하세요.
+            2. 테이블 형식은 일반 텍스트로 변환하세요.
+            3. 문단과 구조를 자연스럽게 유지하세요.
+            4. 채용 정보의 핵심 내용(직무 설명, 자격 요건, 우대사항, 복리후생 등)은 반드시 유지하세요.
+            5. 이메일, URL, 회사명, 지원 방법 등 중요 정보는 정확히 보존하세요.
+            6. 전체 내용을 요약하지 말고, 불필요한 텍스트만 제거하여 원본의 모든 정보를 유지하세요.
 
-텍스트:
-${text}
+            다음은 적절한 변환 예시입니다:
 
-정리된 텍스트:`;
+            예시 1:
+            {
+              "before": "■ 모집부문 ■ \n-백엔드 개발자@@ \n**경력 3~5년차**\n~~~ 자격요건 ~~~\n- JAVA/Spring 프레임워크 경험\n- MySQL 활용 경험\n***우대사항***\nㅁㄴㅇㄹ\n- AWS 클라우드 서비스 경험",
+              "after": "모집부문: 백엔드 개발자\n경력: 3~5년차\n\n자격요건:\n- JAVA/Spring 프레임워크 경험\n- MySQL 활용 경험\n\n우대사항:\n- AWS 클라우드 서비스 경험"
+            }
+
+            예시 2:
+            {
+              "before": "|직무|요구사항|우대사항|\n|---|---|---|\n|프론트엔드|React 경험자|TypeScript 능숙자|\n|백엔드|Node.js 경험자|AWS 경험자|\n\n### 지원방법 ###\n이력서 제출 : recruit@company.com\n마감일 : 2023.05.31",
+              "after": "직무: 프론트엔드\n요구사항: React 경험자\n우대사항: TypeScript 능숙자\n\n직무: 백엔드\n요구사항: Node.js 경험자\n우대사항: AWS 경험자\n\n지원방법:\n이력서 제출: recruit@company.com\n마감일: 2023.05.31"
+            }
+
+            예시 3:
+            {
+              "before": "☆★☆★ 채용공고 ☆★☆★\n▶▶▶ 주요 업무\n- 데이터 분석\n- 머신러닝 모델 개발\n- 데이터 파이프라인 구축\n\n▶▶▶ 자격 요건\n- 파이썬 고급 사용 가능\n- SQL 능숙\n\n▶▶▶ 근무 조건\n- 연봉: 협의\n- 위치: 서울시 강남구\n- 문의처: 02-123-4567\nhttp://company.com/apply",
+              "after": "주요 업무:\n- 데이터 분석\n- 머신러닝 모델 개발\n- 데이터 파이프라인 구축\n\n자격 요건:\n- 파이썬 고급 사용 가능\n- SQL 능숙\n\n근무 조건:\n- 연봉: 협의\n- 위치: 서울시 강남구\n- 문의처: 02-123-4567\n- 지원 링크: http://company.com/apply"
+            }
+
+            텍스트:
+            ${text}
+
+            정리된 텍스트:`;
 
       const response = await this.mistralClient.chat.complete({
         model: "mistral-small-latest",
