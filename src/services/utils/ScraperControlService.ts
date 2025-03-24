@@ -637,6 +637,11 @@ export default class ScraperControlService extends ScraperServiceABC {
           }
         }).filter(url => url && url.length > 0);
       });
+
+      if (!imageUrls.length) {
+        console.log('OCR 처리를 위한 이미지를 찾을 수 없음');
+        return await this.processPageScreenshot(page);
+      }
       
       // console.log(`\nOCR 처리를 위한 이미지 ${imageUrls.length}개 발견`);
 
@@ -666,6 +671,39 @@ export default class ScraperControlService extends ScraperServiceABC {
     } catch (error) {
       console.error('OCR 처리 중 오류:', error);
       return null;
+    }
+  }
+
+  /**
+   * 이미지가 없을 때 페이지 스크린샷 OCR 처리
+   */
+  private async processPageScreenshot(page: Page): Promise<{ content: string; type: string } | null> {
+    console.log('전체 페이지 스크린샷을 OCR 처리에 사용');
+    const screenshotPath = path.join(this.tempDir, `${uuidv4()}.png`);
+    
+    try {
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      
+      const imageBuffer = fs.readFileSync(screenshotPath);
+      const base64Image = imageBuffer.toString('base64');
+      const dataUrl = `data:image/png;base64,${base64Image}`;
+      
+      const ocrResult = await this.processImageWithOCR(dataUrl);
+      // OCR 결과 텍스트 정리
+      const cleanedOcrResult = this.cleanJobDescription(ocrResult);
+      // 추가: Mistral 모델을 사용하여 텍스트 개선
+      const improvedText = await this.improveTextWithMistral(cleanedOcrResult);
+      return {
+        content: improvedText,
+        type: 'ocr'
+      };
+    } catch (error) {
+      console.error('페이지 스크린샷 처리 중 오류:', error);
+      return null;
+    } finally {
+      if (fs.existsSync(screenshotPath)) {
+        fs.unlinkSync(screenshotPath);
+      }
     }
   }
 
