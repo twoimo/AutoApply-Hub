@@ -490,7 +490,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         if (jobDescriptionResult) {
           jobInfo.jobDescription = jobDescriptionResult.content;
           jobInfo.descriptionType = jobDescriptionResult.type;
-          console.log(`채용 상세 설명 추출 성공: ${jobDescriptionResult.type} 방식`);
+          // console.log(`채용 상세 설명 추출 성공: ${jobDescriptionResult.type} 방식`);
         } else {
           console.log(`채용 상세 설명을 찾을 수 없음`);
         }
