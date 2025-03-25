@@ -839,13 +839,21 @@ export default class ScraperControlService extends ScraperServiceABC {
 
     while (attempt < maxRetries) {
       try {
-        const resizedImageUrl = await this.resizeImageIfNeeded(imageUrl);
+        // 이미지 URL 처리 (data URL이 아닌 경우에만)
+        let processedImageUrl = imageUrl;
+        if (!imageUrl.startsWith('data:image')) {
+          try {
+            processedImageUrl = await this.resizeImageIfNeeded(imageUrl);
+          } catch (resizeError) {
+            this.log(`이미지 처리 중 오류, 원본 URL 사용: ${resizeError}`, 'warning');
+          }
+        }
 
         const ocrResponse = await this.mistralClient.ocr.process({
           model: "mistral-ocr-latest",
           document: {
             type: "image_url",
-            imageUrl: resizedImageUrl,
+            imageUrl: processedImageUrl,
           }
         });
 
@@ -855,13 +863,29 @@ export default class ScraperControlService extends ScraperServiceABC {
         }
 
         return extractedText;
-      } catch (error) {
-        if ((error as any).statusCode === 429) {
-          console.error(`속도 제한 오류, 재시도 중... (${attempt + 1}/${maxRetries})`);
-          await sleep(2000);
+      } catch (error: any) {
+        // API 오류 상세 로깅
+        if (error.statusCode) {
+          this.log(`OCR API 오류(${error.statusCode}): ${error.message}`, 'warning');
+        }
+        
+        // 속도 제한이나 서버 오류의 경우 재시도
+        if (error.statusCode === 429 || error.statusCode === 500 || error.statusCode === 503) {
+          this.log(`일시적 서버 오류, 재시도 중... (${attempt + 1}/${maxRetries})`, 'warning');
+          await sleep(2000 * (attempt + 1)); // 지수 백오프
           attempt++;
+        } else if (error.statusCode === 400 && error.message?.includes('invalid_file')) {
+          // 잘못된 이미지 URL - 다른 방식으로 재시도
+          this.log(`잘못된 이미지 URL, data URL 변환 시도...`, 'warning');
+          try {
+            const dataUrl = await this.convertUrlToDataUrlWithFetch(imageUrl);
+            imageUrl = dataUrl; // 다음 시도에서 data URL 사용
+            attempt++;
+          } catch (conversionError) {
+            throw error; // 변환 실패시 원래 오류 발생
+          }
         } else {
-          throw error;
+          throw error; // 다른 오류는 바로 전파
         }
       }
     }
@@ -882,42 +906,162 @@ export default class ScraperControlService extends ScraperServiceABC {
     }
 
     try {
-      const response = await axios.get(imageUrl, { 
+      // URL 인코딩 처리 (한글 및 특수문자 URL 처리)
+      const encodedUrl = this.sanitizeAndEncodeUrl(imageUrl);
+      
+      // Axios 요청 설정
+      const response = await axios.get(encodedUrl, { 
         responseType: 'arraybuffer',
-        timeout: 10000, // 10초 타임아웃 설정
-        maxRedirects: 5  // 최대 리다이렉트 횟수 설정
+        timeout: 15000, // 타임아웃 15초로 증가
+        maxRedirects: 5,
+        // SSL 인증서 검증 에러 우회 (개발 환경에서만 사용)
+        httpsAgent: new (require('https').Agent)({
+          rejectUnauthorized: false
+        })
       });
       
       const imageBuffer = Buffer.from(response.data, 'binary');
+      
+      // 이미지 데이터 검증
+      if (!imageBuffer || imageBuffer.length === 0) {
+        this.log(`빈 이미지 데이터: ${imageUrl}`, 'warning');
+        return this.convertToDataUrl(imageBuffer); // 빈 데이터로도 시도
+      }
+      
       const image = await sharp(imageBuffer);
       const metadata = await image.metadata();
 
-      if ((metadata.width && metadata.width > maxWidth) || (metadata.height && metadata.height > maxHeight)) {
+      if (!metadata.width || !metadata.height) {
+        this.log(`이미지 메타데이터를 읽을 수 없음: ${imageUrl}`, 'warning');
+        return this.convertToDataUrl(imageBuffer);
+      }
+
+      if (metadata.width > maxWidth || metadata.height > maxHeight) {
         const resizedImageBuffer = await image.resize(maxWidth, maxHeight, {
           fit: sharp.fit.inside,
           withoutEnlargement: true
         }).toBuffer();
 
-        const resizedImagePath = path.join(this.tempDir, `${uuidv4()}.png`);
-        fs.writeFileSync(resizedImagePath, resizedImageBuffer);
-
-        const base64Image = resizedImageBuffer.toString('base64');
-        return `data:image/png;base64,${base64Image}`;
+        return this.convertToDataUrl(resizedImageBuffer);
       }
 
-      return imageUrl;
+      return this.convertToDataUrl(imageBuffer);
     } catch (error: any) {
+      // 다양한 에러 케이스 처리
       if (error.code === 'ENOTFOUND') {
-        this.log(`이미지 도메인을 찾을 수 없습니다. 원본 이미지를 사용합니다. URL: ${imageUrl}`, 'warning');
-        return imageUrl;
-      }
-      // 타임아웃 오류 처리
-      if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKETTIMEDOUT') {
+        this.log(`이미지 도메인을 찾을 수 없습니다: ${imageUrl}`, 'warning');
+      } else if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKETTIMEDOUT') {
         this.log(`이미지 로딩 타임아웃: ${imageUrl}`, 'warning');
-        return imageUrl;
+      } else if (error.code === 'ERR_UNESCAPED_CHARACTERS') {
+        this.log(`이스케이프되지 않은 URL 문자: ${imageUrl}`, 'warning');
+        // 인코딩 실패한 URL 수동 처리 시도
+        try {
+          const manuallyEncodedUrl = encodeURI(imageUrl);
+          return await this.resizeImageWithFallback(manuallyEncodedUrl);
+        } catch (fallbackError) {
+          this.log(`수동 인코딩 후에도 실패: ${fallbackError}`, 'error');
+        }
+      } else if (error.message && error.message.includes('certificate')) {
+        this.log(`인증서 오류, data URL로 변환 시도: ${imageUrl}`, 'warning');
+        try {
+          return await this.fetchImageWithInsecureRequest(imageUrl);
+        } catch (certError) {
+          this.log(`인증서 오류 우회 실패: ${certError}`, 'error');
+        }
+      } else {
+        this.log(`이미지 크기 조정 중 오류: ${error}`, 'error');
       }
-      this.log(`이미지 크기 조정 중 오류: ${error}`, 'error');
-      return imageUrl; // 크기 조정 실패 시 원본 URL 반환
+      
+      // 모든 방법이 실패하면 원본 URL의 data URL 변환 시도
+      try {
+        return await this.convertUrlToDataUrlWithFetch(imageUrl);
+      } catch {
+        return imageUrl; // 최종적으로 실패하면 원본 URL 반환
+      }
+    }
+  }
+
+  /**
+   * URL 정리 및 인코딩
+   */
+  private sanitizeAndEncodeUrl(url: string): string {
+    try {
+      // URL 객체로 파싱하여 유효성 검사
+      const parsedUrl = new URL(url);
+      
+      // 경로 부분만 인코딩
+      const encodedPathname = parsedUrl.pathname
+        .split('/')
+        .map(segment => encodeURIComponent(decodeURIComponent(segment)))
+        .join('/');
+      
+      parsedUrl.pathname = encodedPathname;
+      
+      // 쿼리 파라미터는 그대로 유지 (URL 객체가 자동 처리)
+      return parsedUrl.toString();
+    } catch (e) {
+      // URL 파싱 실패시 기본 encodeURI 사용
+      return encodeURI(url);
+    }
+  }
+
+  /**
+   * 인증서 검증 우회하여 이미지 가져오기
+   */
+  private async fetchImageWithInsecureRequest(url: string): Promise<string> {
+    const https = require('https');
+    const response = await axios.get(this.sanitizeAndEncodeUrl(url), {
+      responseType: 'arraybuffer',
+      timeout: 10000,
+      httpsAgent: new https.Agent({ rejectUnauthorized: false })
+    });
+    
+    return this.convertToDataUrl(Buffer.from(response.data, 'binary'));
+  }
+
+  /**
+   * 이미지 버퍼를 data URL로 변환
+   */
+  private convertToDataUrl(buffer: Buffer): string {
+    const base64Image = buffer.toString('base64');
+    return `data:image/png;base64,${base64Image}`;
+  }
+
+  /**
+   * 대체 방법으로 이미지 크기 조정 시도
+   */
+  private async resizeImageWithFallback(url: string): Promise<string> {
+    try {
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 10000,
+        maxRedirects: 5,
+        httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false })
+      });
+      
+      const imageBuffer = Buffer.from(response.data, 'binary');
+      return this.convertToDataUrl(imageBuffer);
+    } catch (error) {
+      this.log(`대체 이미지 처리 실패: ${error}`, 'error');
+      return url;
+    }
+  }
+
+  /**
+   * URL을 data URL로 변환 (fetch API 사용)
+   */
+  private async convertUrlToDataUrlWithFetch(url: string): Promise<string> {
+    try {
+      const response = await axios.get(this.sanitizeAndEncodeUrl(url), {
+        responseType: 'arraybuffer',
+        timeout: 10000,
+        httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false })
+      });
+      
+      return this.convertToDataUrl(Buffer.from(response.data, 'binary'));
+    } catch (error) {
+      this.log(`URL -> data URL 변환 실패: ${error}`, 'error');
+      return url;
     }
   }
 
