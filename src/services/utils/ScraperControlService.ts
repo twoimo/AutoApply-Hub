@@ -159,33 +159,20 @@ export default class ScraperControlService extends ScraperServiceABC {
         processedPages++;
         const pageJobs = result.jobs;
         
-        // 빈 페이지 감지
-        if (pageJobs.length === 0) {
-          consecutiveEmptyPages++;
-          this.log(`연속 ${consecutiveEmptyPages}페이지에서 채용 공고를 찾지 못했습니다.`, 'warning');
-          
-          // 연속 3페이지 이상 빈 경우 스크래핑 종료
-          if (consecutiveEmptyPages >= 50) {
-            this.log(`연속 ${consecutiveEmptyPages}페이지에서 데이터가 없어 스크래핑을 종료합니다.`, 'warning');
-            break;
-          }
-        } else {
-          consecutiveEmptyPages = 0;
-        }
+        // 빈 페이지 및 중복 페이지 처리
+        const continueScraping = await this.handleConsecutivePages(
+          pageJobs, 
+          consecutiveEmptyPages, 
+          consecutiveDuplicates
+        );
         
-        // 연속된 중복 확인
-        const allExisting = await this.checkExistingUrls(pageJobs.map(job => job.url || ''));
-        if (allExisting.length === pageJobs.length && pageJobs.length > 0) {
-          consecutiveDuplicates++;
-          this.log(`연속 ${consecutiveDuplicates}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
-          
-          // 연속 3페이지 이상 모두 중복인 경우 스크래핑 종료
-          if (consecutiveDuplicates >= 3) {
-            this.log(`연속 ${consecutiveDuplicates}페이지 모두 중복으로 스크래핑을 종료합니다.`, 'warning');
-            break;
-          }
-        } else {
-          consecutiveDuplicates = 0;
+        // 결과 업데이트
+        consecutiveEmptyPages = continueScraping.emptyCounts;
+        consecutiveDuplicates = continueScraping.duplicateCounts;
+        
+        // 스크래핑 중단 조건 확인
+        if (!continueScraping.shouldContinue) {
+          break;
         }
         
         // continueScrapping 업데이트
@@ -210,6 +197,63 @@ export default class ScraperControlService extends ScraperServiceABC {
         this.log(`브라우저 종료 및 스크래핑 완료`, 'success');
       }
     }
+  }
+
+  /**
+   * 연속된 빈 페이지나 중복 페이지 처리
+   * @returns 업데이트된 카운터와 스크래핑 계속 여부
+   */
+  private async handleConsecutivePages(
+    pageJobs: JobInfo[],
+    emptyCounts: number,
+    duplicateCounts: number
+  ): Promise<{
+    emptyCounts: number;
+    duplicateCounts: number;
+    shouldContinue: boolean;
+  }> {
+    // 빈 페이지 처리
+    let newEmptyCounts = pageJobs.length === 0 ? emptyCounts + 1 : 0;
+    if (newEmptyCounts > 0) {
+      this.log(`연속 ${newEmptyCounts}페이지에서 채용 공고를 찾지 못했습니다.`, 'warning');
+      
+      if (newEmptyCounts >= 50) {
+        this.log(`연속 ${newEmptyCounts}페이지에서 데이터가 없어 스크래핑을 종료합니다.`, 'warning');
+        return { 
+          emptyCounts: newEmptyCounts, 
+          duplicateCounts, 
+          shouldContinue: false 
+        };
+      }
+    }
+    
+    // 중복 페이지 처리 (빈 페이지가 아닌 경우에만)
+    let newDuplicateCounts = duplicateCounts;
+    if (pageJobs.length > 0) {
+      const allExisting = await this.checkExistingUrls(pageJobs.map(job => job.url || ''));
+      
+      if (allExisting.length === pageJobs.length) {
+        newDuplicateCounts++;
+        this.log(`연속 ${newDuplicateCounts}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
+        
+        if (newDuplicateCounts >= 50) {
+          this.log(`연속 ${newDuplicateCounts}페이지 모두 중복으로 스크래핑을 종료합니다.`, 'warning');
+          return {
+            emptyCounts: newEmptyCounts,
+            duplicateCounts: newDuplicateCounts,
+            shouldContinue: false
+          };
+        }
+      } else {
+        newDuplicateCounts = 0;
+      }
+    }
+    
+    return { 
+      emptyCounts: newEmptyCounts, 
+      duplicateCounts: newDuplicateCounts, 
+      shouldContinue: true 
+    };
   }
 
   /**
@@ -307,7 +351,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         this.log(`모든 채용 공고(${duplicatesInThisPage}개)가 이미 수집되었습니다`, 'warning');
         let consecutiveDuplicates = 1;
         
-        if (consecutiveDuplicates >= 3) {
+        if (consecutiveDuplicates >= 50) {
           this.log(`연속 중복 페이지 발견`, 'warning');
           shouldContinue = false;
           return { jobs: pageJobs, shouldContinue };
