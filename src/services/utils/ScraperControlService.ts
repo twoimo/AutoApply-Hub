@@ -165,7 +165,7 @@ export default class ScraperControlService extends ScraperServiceABC {
           this.log(`연속 ${consecutiveEmptyPages}페이지에서 채용 공고를 찾지 못했습니다.`, 'warning');
           
           // 연속 3페이지 이상 빈 경우 스크래핑 종료
-          if (consecutiveEmptyPages >= 3) {
+          if (consecutiveEmptyPages >= 50) {
             this.log(`연속 ${consecutiveEmptyPages}페이지에서 데이터가 없어 스크래핑을 종료합니다.`, 'warning');
             break;
           }
