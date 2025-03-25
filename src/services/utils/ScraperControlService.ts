@@ -141,12 +141,13 @@ export default class ScraperControlService extends ScraperServiceABC {
     const startTime = Date.now();
     
     let consecutiveDuplicates = 0;
+    let consecutiveEmptyPages = 0;
     let continueScrapping = true;
   
     try {
       browser = await this.initializeBrowser(headless);
       const page = await browser.newPage();
-      page.setDefaultTimeout(30000);
+      page.setDefaultTimeout(60000); // 타임아웃을 60초로 증가
       
       let processedPages = 0;
   
@@ -158,11 +159,31 @@ export default class ScraperControlService extends ScraperServiceABC {
         processedPages++;
         const pageJobs = result.jobs;
         
+        // 빈 페이지 감지
+        if (pageJobs.length === 0) {
+          consecutiveEmptyPages++;
+          this.log(`연속 ${consecutiveEmptyPages}페이지에서 채용 공고를 찾지 못했습니다.`, 'warning');
+          
+          // 연속 3페이지 이상 빈 경우 스크래핑 종료
+          if (consecutiveEmptyPages >= 3) {
+            this.log(`연속 ${consecutiveEmptyPages}페이지에서 데이터가 없어 스크래핑을 종료합니다.`, 'warning');
+            break;
+          }
+        } else {
+          consecutiveEmptyPages = 0;
+        }
+        
         // 연속된 중복 확인
         const allExisting = await this.checkExistingUrls(pageJobs.map(job => job.url || ''));
-        if (allExisting.length === pageJobs.length) {
+        if (allExisting.length === pageJobs.length && pageJobs.length > 0) {
           consecutiveDuplicates++;
           this.log(`연속 ${consecutiveDuplicates}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
+          
+          // 연속 3페이지 이상 모두 중복인 경우 스크래핑 종료
+          if (consecutiveDuplicates >= 3) {
+            this.log(`연속 ${consecutiveDuplicates}페이지 모두 중복으로 스크래핑을 종료합니다.`, 'warning');
+            break;
+          }
         } else {
           consecutiveDuplicates = 0;
         }
@@ -234,11 +255,46 @@ export default class ScraperControlService extends ScraperServiceABC {
     
     try {
       const pageUrl = this.buildSaraminPageUrl(pageNum);
-      await page.goto(pageUrl, { waitUntil: "networkidle2" });
+      
+      // 페이지 로드를 위한 재시도 로직 추가
+      let loadSuccess = false;
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (!loadSuccess && retryCount < maxRetries) {
+        try {
+          await page.goto(pageUrl, { 
+            waitUntil: "domcontentloaded", // 더 빠른 로드 옵션으로 변경
+            timeout: 60000 // 60초 타임아웃
+          });
+          
+          // 페이지 내 채용 정보 영역이 로드될 때까지 대기
+          await page.waitForSelector(".box_item", { timeout: 30000 }).catch(() => {
+            this.log(`페이지 ${pageNum}에서 채용 정보를 찾을 수 없습니다.`, 'warning');
+          });
+          
+          loadSuccess = true;
+        } catch (error) {
+          retryCount++;
+          this.log(`페이지 ${pageUrl} 로드 실패 (${retryCount}/${maxRetries}): ${error}`, 'warning');
+          if (retryCount >= maxRetries) {
+            this.log(`최대 재시도 횟수 초과로 페이지 ${pageNum} 스킵`, 'error');
+            return { jobs: [], shouldContinue: false };
+          }
+          await sleep(3000); // 재시도 전 3초 대기
+        }
+      }
+      
       await sleep(waitTime);
   
       const links = await this.extractJobLinks(page);
       this.logVerbose(`페이지 ${pageNum}: ${links.length}개 채용 공고 발견`);
+      
+      // 링크가 없으면 즉시 반환
+      if (links.length === 0) {
+        this.log(`페이지 ${pageNum}에서 채용 공고를 찾을 수 없습니다. 데이터가 없거나 페이지 구조가 변경되었을 수 있습니다.`, 'warning');
+        return { jobs: [], shouldContinue: false };
+      }
       
       const urlsToCheck = links.map(link => `https://www.saramin.co.kr${link}`);
       const existingUrls = await this.checkExistingUrls(urlsToCheck);
@@ -357,153 +413,179 @@ export default class ScraperControlService extends ScraperServiceABC {
    * 채용 상세 페이지에서 상세 정보 추출
    */
   private async extractJobDetails(page: Page, url: string, waitTime: number): Promise<JobInfo | null> {
-    try {
-      await page.goto(url, { waitUntil: "networkidle2" });
-      await sleep(waitTime);
-
-      const jobInfo = await page.evaluate(() => {
-        const jviewSectionSelector = "section[class^='jview jview-0-']";
-        const jviewSection = document.querySelector(jviewSectionSelector);
+    const maxRetries = 2;
+    let retryCount = 0;
+    
+    while (retryCount <= maxRetries) {
+      try {
+        // 더 신뢰할 수 있는 페이지 탐색 전략 사용
+        await page.goto(url, { 
+          waitUntil: "domcontentloaded", 
+          timeout: 60000 // 타임아웃 60초로 증가
+        });
         
-        if (!jviewSection) return null;
-
-        const getTextContent = (selector: string): string => {
-          const element = jviewSection.querySelector(selector);
-          return element ? element.textContent?.trim() || "" : "";
-        };
-
-        const extractDeadline = (): string => {
-          const allElements = Array.from(jviewSection.querySelectorAll("*"));
-          
-          for (const el of allElements) {
-            const text = el.textContent || "";
-            if (text.includes("마감일") || text.includes("접수기간") || 
-                text.includes("모집기간") || text.includes("공고기간")) {
-              const datePattern = /\d{4}[-./]\d{1,2}[-./]\d{1,2}/g;
-              const timePattern = /\d{1,2}:\d{2}/g;
-              
-              const dateMatches = text.match(datePattern);
-              const timeMatches = text.match(timePattern);
-              
-              if (dateMatches) {
-                return timeMatches 
-                  ? `${dateMatches[0]} ${timeMatches[0]}`
-                  : dateMatches[0];
-              }
-            }
-          }
-          return "";
-        };
-
-        const extractInfoFromColumns = (): Record<string, string> => {
-          const result: Record<string, string> = {};
-          const dlElements = jviewSection.querySelectorAll("dl");
-          
-          dlElements.forEach((dl) => {
-            const title = dl.querySelector("dt")?.textContent?.trim() || "";
-            const value = dl.querySelector("dd")?.textContent?.trim() || "";
-            if (title && value) result[title] = value;
+        // 중요 페이지 요소가 로드될 때까지 기다림
+        await page.waitForSelector("section[class^='jview jview-0-']", { timeout: 30000 })
+          .catch(() => {
+            this.log(`채용 상세 페이지 요소를 찾을 수 없음: ${url}`, 'warning');
           });
-          
-          return result;
-        };
         
-        const extractCompanyType = (): string => {
-          const companyInfoArea = jviewSection.querySelector(".info_area");
-          if (!companyInfoArea) return "";
-          
-          const dlElements = companyInfoArea.querySelectorAll("dl");
-          for (const dl of Array.from(dlElements)) {
-            const dt = dl.querySelector("dt");
-            if (dt && dt.textContent && dt.textContent.trim() === "기업형태") {
-              const dd = dl.querySelector("dd");
-              if (dd && dd.getAttribute("title")) {
-                return dd.getAttribute("title") || "";
-              }
-              else if (dd) {
-                return dd.textContent?.trim() || "";
-              }
-              return "";
-            }
-          }
-          return "";
-        };
-        
-        const columnInfo = extractInfoFromColumns();
-        
-        const companyName = getTextContent(".title_inner .company") || getTextContent(".company_name") || getTextContent(".corp_name");
-        const jobTitle = getTextContent(".job_tit") || getTextContent("h1.tit_job");
-        const jobLocation = columnInfo["근무지역"]?.replace(/지도/g, "").trim() || "";
-        
-        let deadline = "";
-        
-        const infoDeadline = jviewSection.querySelector(".info_period");
-        if (infoDeadline) {
-          const endDt = infoDeadline.querySelector("dt.end");
-          if (endDt && endDt.textContent?.includes("마감일")) {
-            const endDd = endDt.nextElementSibling;
-            if (endDd && endDd.tagName.toLowerCase() === "dd") {
-              deadline = endDd.textContent?.trim() || "";
-            }
-          }
-        }
-        
-        if (!deadline) {
-          deadline = extractDeadline();
-        }
-        
-        let jobSalary = columnInfo["급여"] || columnInfo["급여조건"] || "";
-        if (jobSalary) {
-          jobSalary = jobSalary
-            .split("상세보기")[0]
-            .split("최저임금")[0]
-            .trim();
-          
-          const hourPattern = /\(주 \d+시간\)/;
-          const match = jobSalary.match(hourPattern);
-          if (match) {
-            const index = jobSalary.indexOf(match[0]) + match[0].length;
-            jobSalary = jobSalary.substring(0, index).trim();
-          }
-        }
-        
-        const employmentType = columnInfo["근무형태"] || columnInfo["고용형태"] || "";
-        const companyType = extractCompanyType();
-        
-        return {
-          companyName,
-          jobTitle,
-          jobLocation,
-          jobType: columnInfo["경력"] || columnInfo["경력조건"] || "",
-          jobSalary,
-          deadline,
-          employmentType,
-          companyType,
-          jobDescription: "",
-          descriptionType: ""
-        };
-      });
+        await sleep(waitTime);
 
-      if (jobInfo) {
-        const jobDescriptionResult = await this.extractJobDescription(page);
-        
-        if (jobDescriptionResult) {
-          jobInfo.jobDescription = jobDescriptionResult.content;
-          jobInfo.descriptionType = jobDescriptionResult.type;
-          // console.log(`채용 상세 설명 추출 성공: ${jobDescriptionResult.type} 방식`);
+        const jobInfo = await page.evaluate(() => {
+          const jviewSectionSelector = "section[class^='jview jview-0-']";
+          const jviewSection = document.querySelector(jviewSectionSelector);
+          
+          if (!jviewSection) return null;
+
+          const getTextContent = (selector: string): string => {
+            const element = jviewSection.querySelector(selector);
+            return element ? element.textContent?.trim() || "" : "";
+          };
+
+          const extractDeadline = (): string => {
+            const allElements = Array.from(jviewSection.querySelectorAll("*"));
+            
+            for (const el of allElements) {
+              const text = el.textContent || "";
+              if (text.includes("마감일") || text.includes("접수기간") || 
+                  text.includes("모집기간") || text.includes("공고기간")) {
+                const datePattern = /\d{4}[-./]\d{1,2}[-./]\d{1,2}/g;
+                const timePattern = /\d{1,2}:\d{2}/g;
+                
+                const dateMatches = text.match(datePattern);
+                const timeMatches = text.match(timePattern);
+                
+                if (dateMatches) {
+                  return timeMatches 
+                    ? `${dateMatches[0]} ${timeMatches[0]}`
+                    : dateMatches[0];
+                }
+              }
+            }
+            return "";
+          };
+
+          const extractInfoFromColumns = (): Record<string, string> => {
+            const result: Record<string, string> = {};
+            const dlElements = jviewSection.querySelectorAll("dl");
+            
+            dlElements.forEach((dl) => {
+              const title = dl.querySelector("dt")?.textContent?.trim() || "";
+              const value = dl.querySelector("dd")?.textContent?.trim() || "";
+              if (title && value) result[title] = value;
+            });
+            
+            return result;
+          };
+          
+          const extractCompanyType = (): string => {
+            const companyInfoArea = jviewSection.querySelector(".info_area");
+            if (!companyInfoArea) return "";
+            
+            const dlElements = companyInfoArea.querySelectorAll("dl");
+            for (const dl of Array.from(dlElements)) {
+              const dt = dl.querySelector("dt");
+              if (dt && dt.textContent && dt.textContent.trim() === "기업형태") {
+                const dd = dl.querySelector("dd");
+                if (dd && dd.getAttribute("title")) {
+                  return dd.getAttribute("title") || "";
+                }
+                else if (dd) {
+                  return dd.textContent?.trim() || "";
+                }
+                return "";
+              }
+            }
+            return "";
+          };
+          
+          const columnInfo = extractInfoFromColumns();
+          
+          const companyName = getTextContent(".title_inner .company") || getTextContent(".company_name") || getTextContent(".corp_name");
+          const jobTitle = getTextContent(".job_tit") || getTextContent("h1.tit_job");
+          const jobLocation = columnInfo["근무지역"]?.replace(/지도/g, "").trim() || "";
+          
+          let deadline = "";
+          
+          const infoDeadline = jviewSection.querySelector(".info_period");
+          if (infoDeadline) {
+            const endDt = infoDeadline.querySelector("dt.end");
+            if (endDt && endDt.textContent?.includes("마감일")) {
+              const endDd = endDt.nextElementSibling;
+              if (endDd && endDd.tagName.toLowerCase() === "dd") {
+                deadline = endDd.textContent?.trim() || "";
+              }
+            }
+          }
+          
+          if (!deadline) {
+            deadline = extractDeadline();
+          }
+          
+          let jobSalary = columnInfo["급여"] || columnInfo["급여조건"] || "";
+          if (jobSalary) {
+            jobSalary = jobSalary
+              .split("상세보기")[0]
+              .split("최저임금")[0]
+              .trim();
+            
+            const hourPattern = /\(주 \d+시간\)/;
+            const match = jobSalary.match(hourPattern);
+            if (match) {
+              const index = jobSalary.indexOf(match[0]) + match[0].length;
+              jobSalary = jobSalary.substring(0, index).trim();
+            }
+          }
+          
+          const employmentType = columnInfo["근무형태"] || columnInfo["고용형태"] || "";
+          const companyType = extractCompanyType();
+          
+          return {
+            companyName,
+            jobTitle,
+            jobLocation,
+            jobType: columnInfo["경력"] || columnInfo["경력조건"] || "",
+            jobSalary,
+            deadline,
+            employmentType,
+            companyType,
+            jobDescription: "",
+            descriptionType: ""
+          };
+        });
+
+        if (jobInfo) {
+          const jobDescriptionResult = await this.extractJobDescription(page);
+          
+          if (jobDescriptionResult) {
+            jobInfo.jobDescription = jobDescriptionResult.content;
+            jobInfo.descriptionType = jobDescriptionResult.type;
+          } else {
+            console.log(`채용 상세 설명을 찾을 수 없음`);
+          }
         } else {
-          console.log(`채용 상세 설명을 찾을 수 없음`);
+          console.log(`채용 정보 추출 실패: 정보를 찾을 수 없음`);
         }
-      } else {
-        console.log(`채용 정보 추출 실패: 정보를 찾을 수 없음`);
+
+        return jobInfo;
+
+      } catch (error) {
+        retryCount++;
+        const isTimeout = error instanceof Error && error.name === 'TimeoutError';
+        this.log(`${url} 처리 실패 (${retryCount}/${maxRetries}): ${isTimeout ? '타임아웃 발생' : error}`, 'warning');
+        
+        if (retryCount <= maxRetries) {
+          this.log(`3초 후 재시도...`, 'info');
+          await sleep(3000);
+        } else {
+          this.log(`최대 재시도 횟수 초과`, 'error');
+          return null;
+        }
       }
-
-      return jobInfo;
-
-    } catch (error) {
-      console.error(`${url}에서 채용 정보 추출 실패: ${error}`);
-      return null;
     }
+    
+    return null;
   }
 
   /**
@@ -750,8 +832,18 @@ export default class ScraperControlService extends ScraperServiceABC {
     const maxWidth = 10000;
     const maxHeight = 10000;
 
+    // data:image URL인 경우 그대로 반환
+    if (imageUrl.startsWith('data:image')) {
+      return imageUrl;
+    }
+
     try {
-      const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+      const response = await axios.get(imageUrl, { 
+        responseType: 'arraybuffer',
+        timeout: 10000, // 10초 타임아웃 설정
+        maxRedirects: 5  // 최대 리다이렉트 횟수 설정
+      });
+      
       const imageBuffer = Buffer.from(response.data, 'binary');
       const image = await sharp(imageBuffer);
       const metadata = await image.metadata();
@@ -775,7 +867,12 @@ export default class ScraperControlService extends ScraperServiceABC {
         this.log(`이미지 도메인을 찾을 수 없습니다. 원본 이미지를 사용합니다. URL: ${imageUrl}`, 'warning');
         return imageUrl;
       }
-      console.error('이미지 크기 조정 중 오류:', error);
+      // 타임아웃 오류 처리
+      if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKETTIMEDOUT') {
+        this.log(`이미지 로딩 타임아웃: ${imageUrl}`, 'warning');
+        return imageUrl;
+      }
+      this.log(`이미지 크기 조정 중 오류: ${error}`, 'error');
       return imageUrl; // 크기 조정 실패 시 원본 URL 반환
     }
   }
