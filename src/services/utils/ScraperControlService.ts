@@ -961,23 +961,41 @@ export default class ScraperControlService extends ScraperServiceABC {
         } catch (fallbackError) {
           this.log(`수동 인코딩 후에도 실패: ${fallbackError}`, 'error');
         }
+      } else if (error.response?.status === 404) {
+        this.log(`이미지를 찾을 수 없음(404): ${imageUrl}`, 'warning');
       } else if (error.message && error.message.includes('certificate')) {
-        this.log(`인증서 오류, data URL로 변환 시도: ${imageUrl}`, 'warning');
-        try {
-          return await this.fetchImageWithInsecureRequest(imageUrl);
-        } catch (certError) {
-          this.log(`인증서 오류 우회 실패: ${certError}`, 'error');
-        }
+        this.log(`인증서 오류, 보안 우회 시도: ${imageUrl}`, 'warning');
+        return this.processImageWithSecurityBypass(imageUrl);
       } else {
-        this.log(`이미지 크기 조정 중 오류: ${error}`, 'error');
+        this.log(`이미지 처리 오류: ${error.message || error}`, 'error');
       }
       
-      // 모든 방법이 실패하면 원본 URL의 data URL 변환 시도
-      try {
-        return await this.convertUrlToDataUrlWithFetch(imageUrl);
-      } catch {
-        return imageUrl; // 최종적으로 실패하면 원본 URL 반환
-      }
+      // 모든 방법이 실패하면 최종 대안으로 시도
+      return this.tryFallbackImageProcessing(imageUrl);
+    }
+  }
+
+  /**
+   * 인증서 오류 발생 시 이미지 처리
+   */
+  private async processImageWithSecurityBypass(imageUrl: string): Promise<string> {
+    try {
+      return await this.fetchImageWithInsecureRequest(imageUrl);
+    } catch (certError) {
+      this.log(`보안 우회 실패: ${certError}`, 'error');
+      return imageUrl; // 실패 시 원본 반환
+    }
+  }
+
+  /**
+   * 모든 방법이 실패했을 때 최종 대안 시도
+   */
+  private async tryFallbackImageProcessing(imageUrl: string): Promise<string> {
+    try {
+      return await this.convertUrlToDataUrlWithFetch(imageUrl);
+    } catch (error) {
+      this.log(`최종 이미지 변환 실패, 원본 사용: ${error}`, 'warning');
+      return imageUrl; // 최종적으로 실패하면 원본 URL 반환
     }
   }
 
