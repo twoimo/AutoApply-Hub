@@ -520,14 +520,14 @@ export class SaraminScraper {
     if (newEmptyCounts > 0) {
       this.logger.log(`연속 ${newEmptyCounts}페이지에서 채용 공고를 찾지 못했습니다.`, 'warning');
       
-      if (newEmptyCounts >= 50) {
-        this.logger.log(`연속 ${newEmptyCounts}페이지에서 데이터가 없어 스크래핑을 종료합니다.`, 'warning');
-        return { 
-          emptyCounts: newEmptyCounts, 
-          duplicateCounts, 
-          shouldContinue: false 
-        };
-      }
+      // if (newEmptyCounts >= 50) {
+      //   this.logger.log(`연속 ${newEmptyCounts}페이지에서 데이터가 없어 스크래핑을 종료합니다.`, 'warning');
+      //   return { 
+      //     emptyCounts: newEmptyCounts, 
+      //     duplicateCounts, 
+      //     shouldContinue: false 
+      //   };
+      // }
     }
     
     // 중복 페이지 처리 (빈 페이지가 아닌 경우에만)
@@ -539,14 +539,14 @@ export class SaraminScraper {
         newDuplicateCounts++;
         this.logger.log(`연속 ${newDuplicateCounts}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
         
-        if (newDuplicateCounts >= 50) {
-          this.logger.log(`연속 ${newDuplicateCounts}페이지 모두 중복으로 스크래핑을 종료합니다.`, 'warning');
-          return {
-            emptyCounts: newEmptyCounts,
-            duplicateCounts: newDuplicateCounts,
-            shouldContinue: false
-          };
-        }
+        // if (newDuplicateCounts >= 50) {
+        //   this.logger.log(`연속 ${newDuplicateCounts}페이지 모두 중복으로 스크래핑을 종료합니다.`, 'warning');
+        //   return {
+        //     emptyCounts: newEmptyCounts,
+        //     duplicateCounts: newDuplicateCounts,
+        //     shouldContinue: false
+        //   };
+        // }
       } else {
         newDuplicateCounts = 0;
       }
