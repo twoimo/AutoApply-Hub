@@ -35,7 +35,9 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @httpMethod get
    * @path /test
    */
-  public async test({}: {}) {}
+  public async test({}: {}) {
+    await this.ScraperControlService.openSaramin({});
+  }
 
   /**
    * @name 시작 함수
