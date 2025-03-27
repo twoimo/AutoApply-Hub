@@ -43,6 +43,6 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @path /run
    */
   public async run({}: {}) {
-    await this.ScraperControlService.openSaramin({});
+    await this.ScraperControlService.scheduleWeekdayScraping();
   }
 }
