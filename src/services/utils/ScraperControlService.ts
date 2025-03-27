@@ -115,81 +115,130 @@ export default class ScraperControlService extends ScraperServiceABC {
     
     logger.log('채용 공고 URL 중복 검사 중...', 'info');
     
-    // 스크래핑 전 예비 검사 (첫 페이지만 확인)
+    // URL 검사를 위한 해시맵 초기화 (중복 제거)
+    const uniqueUrls = new Map<string, boolean>();
+    const pagesToCheck = 5; // 첫 5페이지 검사 (설정에 따라 조정 가능)
+    let totalJobsCount = 0;
+    
+    // 스크래핑 전 여러 페이지 검사
     try {
       const browserService = this.factory.getBrowserService();
       const browser = await browserService.initializeBrowser(settings.headless);
       const page = await browserService.createPage();
       
-      // 첫 페이지 URL 생성
-      const pageUrl = saraminScraper.buildPageUrl(settings.startPage);
-      
-      // 페이지 로드
-      const loadSuccess = await browserService.loadPageWithRetry(page, pageUrl, {
-        waitForSelector: ".box_item",
-        waitTime: settings.waitTime
-      });
-      
-      if (!loadSuccess) {
-        logger.log('페이지 로드 실패, 스크래핑 중단', 'error');
-        await browserService.closeBrowser();
-        return [];
-      }
-      
-      // 채용 공고 링크 추출
-      const links = await page.evaluate(() => {
-        const linkList: string[] = [];
-        const boxItems = document.querySelectorAll(".box_item");
+      // 여러 페이지에서 URL 수집
+      for (let pageNum = settings.startPage; pageNum < settings.startPage + pagesToCheck; pageNum++) {
+        logger.log(`URL 수집을 위해 페이지 ${pageNum} 검사 중...`, 'info');
         
-        boxItems.forEach((item) => {
-          const notificationInfo = item.querySelector(".notification_info");
-          if (notificationInfo) {
-            const linkElement = notificationInfo.querySelector("a");
-            if (linkElement && linkElement.getAttribute("href")) {
-              linkList.push(linkElement.getAttribute("href") || "");
+        // 페이지 URL 생성
+        const pageUrl = saraminScraper.buildPageUrl(pageNum);
+        
+        // 페이지 로드
+        const loadSuccess = await browserService.loadPageWithRetry(page, pageUrl, {
+          waitForSelector: ".box_item",
+          waitTime: Math.floor(Math.random() * 1000) + 2000 // 짧은 대기 시간
+        });
+        
+        if (!loadSuccess) {
+          logger.log(`페이지 ${pageNum} 로드 실패, 다음 페이지로 진행`, 'warning');
+          continue;
+        }
+        
+        // 채용 공고 링크 추출
+        const links = await page.evaluate(() => {
+          const linkList: string[] = [];
+          const boxItems = document.querySelectorAll(".box_item");
+          
+          boxItems.forEach((item) => {
+            const notificationInfo = item.querySelector(".notification_info");
+            if (notificationInfo) {
+              const linkElement = notificationInfo.querySelector("a");
+              if (linkElement && linkElement.getAttribute("href")) {
+                linkList.push(linkElement.getAttribute("href") || "");
+              }
             }
+          });
+          
+          return linkList;
+        });
+        
+        // 링크가 없으면 이후 페이지도 확인할 필요 없음
+        if (links.length === 0) {
+          logger.log(`페이지 ${pageNum}에서 채용 공고를 찾을 수 없어 URL 수집을 중단합니다.`, 'warning');
+          break;
+        }
+        
+        // 각 채용 공고 URL 생성 및 해시맵에 추가
+        links.forEach(link => {
+          const fullUrl = `https://www.saramin.co.kr${link}`;
+          if (!uniqueUrls.has(fullUrl)) {
+            uniqueUrls.set(fullUrl, true);
+            totalJobsCount++;
           }
         });
         
-        return linkList;
-      });
+        logger.log(`페이지 ${pageNum}에서 ${links.length}개 URL 수집, 현재까지 총 ${uniqueUrls.size}개 고유 URL`, 'info');
+      }
       
       // 브라우저 종료
       await browserService.closeBrowser();
       
-      if (links.length === 0) {
-        logger.log('채용 공고를 찾을 수 없습니다.', 'warning');
+      // 수집된 URL이 없는 경우
+      if (uniqueUrls.size === 0) {
+        logger.log('수집된 채용 공고 URL이 없습니다.', 'warning');
         return [];
       }
       
-      // 각 채용 공고 URL 생성
-      const urlsToCheck = links.map(link => `https://www.saramin.co.kr${link}`);
+      // 해시맵에서 URL 목록 추출
+      const urlsToCheck = Array.from(uniqueUrls.keys());
       
       // 기존 URL 중복 확인
       const existingUrls = await jobRepository.checkExistingUrls(urlsToCheck);
       
-      // 중복 체크
-      const duplicatesCount = existingUrls.length;
-      const newUrlsCount = urlsToCheck.length - duplicatesCount;
+      // 중복 URL을 위한 해시맵 (빠른 검색용)
+      const existingUrlsMap = new Map<string, boolean>();
+      existingUrls.forEach(url => existingUrlsMap.set(url, true));
       
-      logger.log(`${urlsToCheck.length}개 채용 공고 중 ${duplicatesCount}개는 이미 수집됨, ${newUrlsCount}개 새로운 공고 있음`, 
-      newUrlsCount > 0 ? 'info' : 'warning');
+      // 새로운 URL만 필터링
+      const newUrls = urlsToCheck.filter(url => !existingUrlsMap.has(url));
+      
+      // 중복 체크 결과 출력
+      const duplicatesCount = existingUrls.length;
+      const newUrlsCount = newUrls.length;
+      
+      logger.log(`${urlsToCheck.length}개 고유 채용 공고 중 ${duplicatesCount}개는 이미 수집됨, ${newUrlsCount}개 새로운 공고 있음`, 
+        newUrlsCount > 0 ? 'info' : 'warning');
       
       // 모든 URL이 중복인 경우
-      if (duplicatesCount === urlsToCheck.length) {
+      if (newUrlsCount === 0) {
         logger.log('모든 채용 공고가 이미 수집되었습니다. 스크래핑을 건너뜁니다.', 'warning');
         return [];
       }
       
       // 새 URL이 있는 경우 정상 스크래핑 진행
-      logger.log(`새로운 채용 공고가 발견되었습니다. 스크래핑을 진행합니다.`, 'success');
+      logger.log(`${newUrlsCount}개의 새로운 채용 공고가 발견되었습니다. 스크래핑을 진행합니다.`, 'success');
+      
+      // 수집된 새 URL 정보 표시
+      if (newUrlsCount > 0 && newUrlsCount <= 10) {
+        newUrls.forEach((url, index) => {
+          logger.log(`  ${index + 1}. ${url}`, 'info');
+        });
+      }
+      
+      // 스크래핑 대상 페이지 결정 (새 URL이 있는 페이지부터)
+      const customConfig = {
+        ...config,
+        startPage: settings.startPage, // 원래 시작 페이지부터 유지
+      };
+      
+      // 정상 스크래핑 프로세스 실행
+      return await this.openSaramin(customConfig);
       
     } catch (error) {
       logger.log(`URL 중복 검사 중 오류: ${error}`, 'error');
+      // 오류 발생해도 정상 스크래핑 시도
+      return await this.openSaramin(config);
     }
-    
-    // 정상 스크래핑 프로세스 실행
-    return await this.openSaramin(config);
   }
 
   /**
