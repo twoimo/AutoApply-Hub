@@ -80,7 +80,7 @@ export const JobMatchingConstants = {
   // 검토 후 지원 점수 기준
   CONSIDER_SCORE: 55,
   // 기본 채용공고 조회 개수
-  DEFAULT_JOB_LIMIT: 10,
+  DEFAULT_JOB_LIMIT: 1,
   // 기본 매칭 결과 개수
-  DEFAULT_MATCH_LIMIT: 5
+  DEFAULT_MATCH_LIMIT: 1
 };
