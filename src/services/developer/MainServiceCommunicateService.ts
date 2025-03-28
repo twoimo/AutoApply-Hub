@@ -185,16 +185,4 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
       };
     }
   }
-
-  /**
-   * @name DB 데이터 기반 매칭
-   * @httpMethod get
-   * @path /match-jobs-vector
-   */
-  public async matchJobsWithVectorStore({}: {}) {
-    // 가정: JobRepository가 모든 테이블 데이터를 반환하는 함수를 제공
-    const dbData = await this.jobRepository.getAllTablesData();
-    const result = await this.openAIAssistantService.matchJobsWithVectorStore(dbData);
-    return { success: true, result };
-  }
 }
