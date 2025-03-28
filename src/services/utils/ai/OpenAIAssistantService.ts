@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { LoggerService } from '../logging/LoggerService';
 import { JobInfo } from '../types/JobTypes';
+import { OpenAIConfigManager } from './OpenAIConfigManager';
 
 dotenv.config();
 
@@ -24,6 +25,11 @@ export class OpenAIAssistantService {
     this.openai = new OpenAI({
       apiKey: this.apiKey
     });
+
+    // 로컬 파일에서 기존 assistantId, threadId 불러오기
+    const persisted = OpenAIConfigManager.loadConfig();
+    if (persisted.assistantId) this.assistantId = persisted.assistantId;
+    if (persisted.threadId) this.threadId = persisted.threadId;
 
     // 시스템 지시사항 로드
     this.systemInstructions = this.loadSystemInstructions();
@@ -161,13 +167,12 @@ export class OpenAIAssistantService {
    * OpenAI Assistant 생성 또는 기존 어시스턴트 사용
    */
   public async initializeAssistant(assistantId?: string): Promise<string> {
+    // 이미 값이 있다면 새로 안 만듦
+    if (this.assistantId) {
+      this.logger.log(`이미 생성된 어시스턴트 사용: ${this.assistantId}`, 'info');
+      return this.assistantId;
+    }
     try {
-      // 이미 어시스턴트가 존재하면 재사용
-      if (this.assistantId) {
-        this.logger.log(`이미 생성된 어시스턴트 사용: ${this.assistantId}`, 'info');
-        return this.assistantId;
-      }
-      
       if (assistantId) {
         this.assistantId = assistantId;
         this.logger.log(`기존 어시스턴트 사용: ${this.assistantId}`, 'info');
@@ -184,6 +189,13 @@ export class OpenAIAssistantService {
       });
       this.assistantId = assistant.id;
       this.logger.log(`어시스턴트 생성 완료: ${this.assistantId}`, 'success');
+
+      // 새로 생성 성공 시 파일에 저장
+      OpenAIConfigManager.saveConfig({
+        assistantId: this.assistantId ?? undefined,
+        threadId: this.threadId ?? undefined,
+      });
+
       return this.assistantId;
     } catch (error) {
       this.logger.log(`어시스턴트 초기화 실패: ${error}`, 'error');
@@ -195,17 +207,23 @@ export class OpenAIAssistantService {
    * 채팅 스레드 생성 (기존 스레드 있으면 재사용)
    */
   public async createThread(): Promise<string> {
+    // 이미 값이 있다면 새로 안 만듦
+    if (this.threadId) {
+      this.logger.log(`기존 스레드 사용: ${this.threadId}`, 'info');
+      return this.threadId;
+    }
     try {
-      // 이미 스레드가 존재하면 재사용
-      if (this.threadId) {
-        this.logger.log(`기존 스레드 사용: ${this.threadId}`, 'info');
-        return this.threadId;
-      }
-
       // 새 스레드 생성
       const thread = await this.openai.beta.threads.create();
       this.threadId = thread.id;
       this.logger.log(`스레드 생성 완료: ${this.threadId}`, 'success');
+
+      // 새로 생성 성공 시 파일에 저장
+      OpenAIConfigManager.saveConfig({
+        assistantId: this.assistantId ?? undefined,
+        threadId: this.threadId,
+      });
+
       return this.threadId;
     } catch (error) {
       this.logger.log(`스레드 생성 실패: ${error}`, 'error');
