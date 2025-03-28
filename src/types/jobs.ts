@@ -50,36 +50,6 @@ export interface JobInfo {
    * 데이터 수집 시간을 기록하여 정보의 신선도 파악에 활용
    */
   scrapedAt?: string;
-  
-  /**
-   * 고유 식별자 (DB ID)
-   * Vector Store에서 검색 결과 식별에 사용
-   */
-  id?: number;
-  
-  /**
-   * 채용 공고 상세 설명
-   * HTML이나 마크다운 등 서식이 포함될 수 있음
-   */
-  jobDescription?: string;
-  
-  /**
-   * 기업 형태
-   * 예: "대기업", "중견기업", "스타트업"
-   */
-  companyType?: string;
-  
-  /**
-   * 고용 형태
-   * 예: "정규직", "계약직", "인턴"
-   */
-  employmentType?: string;
-  
-  /**
-   * 채용 공고 설명 형식
-   * text, html, markdown 등
-   */
-  descriptionType?: string;
 }
 
 /**

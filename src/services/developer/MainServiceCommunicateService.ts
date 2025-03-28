@@ -13,7 +13,6 @@ import { JobMatchingService, JobMatchResult } from "../utils/ai/JobMatchingServi
 import { LoggerService } from "../utils/logging/LoggerService";
 import { JobRepository } from "../utils/db/JobRepository";
 import dotenv from 'dotenv';
-import { OpenAIAssistantService } from "../utils/ai/OpenAIAssistantService";
 
 // 환경 변수 로드
 dotenv.config();
@@ -44,7 +43,6 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   private matchingService: JobMatchingService | null = null;
   private logger: LoggerService;
   private jobRepository: JobRepository;
-  private openAIAssistantService: OpenAIAssistantService;
   
   // OpenAI API 키 및 어시스턴트 ID
   private readonly openaiApiKey: string = process.env.OPENAI_API_KEY ?? "";
@@ -54,7 +52,6 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
     super([]);
     this.logger = new LoggerService(true);
     this.jobRepository = new JobRepository(this.logger);
-    this.openAIAssistantService = new OpenAIAssistantService(this.openaiApiKey, this.logger);
     this.initializeMatchingService();
   }
 
