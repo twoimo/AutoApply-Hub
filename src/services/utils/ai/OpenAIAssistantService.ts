@@ -3,8 +3,31 @@ import path from 'path';
 import { LoggerService } from '../logging/LoggerService';
 import { JobInfo } from '../types/JobTypes';
 import { FileHelper } from '../helpers/FileHelper';
-import { PathConstants, OpenAIConstants } from '../constants/AppConstants';
+import { PathConstants, MistralAIConstants } from '../constants/AppConstants';
 import { getSystemInstructions } from './SystemInstructions';
+
+// 기존 OpenAI 상수 대체
+const OpenAIConstants = {
+  ASSISTANT: {
+    MODEL: 'gpt-4o',
+    NAME: '채용정보 매칭 어시스턴트',
+    DESCRIPTION: '구직자 프로필과 채용공고 간의 적합성을 평가',
+    TOOLS: [{ type: 'retrieval' as const }]
+  },
+  RUN: {
+    MAX_RETRIES: 60,
+    DELAY_MS: 1000,
+    STATUS: {
+      COMPLETED: 'completed',
+      FAILED: 'failed',
+      CANCELLED: 'cancelled',
+      REQUIRES_ACTION: 'requires_action'
+    }
+  },
+  ROLES: MistralAIConstants.ROLES,
+  FILE_PURPOSE: 'assistants' as const,
+  MESSAGE_PREFIXES: MistralAIConstants.MESSAGE_PREFIXES
+};
 
 // Assistant와 Thread ID를 저장하기 위한 인터페이스
 interface PersistentIDs {
@@ -14,6 +37,7 @@ interface PersistentIDs {
 
 /**
  * OpenAI API와 상호작용하고 Assistant 기능을 활용하는 서비스
+ * @deprecated 이 서비스는 MistralAIService로 대체되었습니다.
  */
 export class OpenAIAssistantService {
   private openai: OpenAI;

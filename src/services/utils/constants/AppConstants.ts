@@ -3,35 +3,20 @@
  */
 
 /**
- * OpenAI 관련 상수
+ * Mistral AI 관련 상수
  */
-export const OpenAIConstants = {
-  ASSISTANT: {
-    MODEL: 'gpt-4o',
-    NAME: '채용정보 매칭 어시스턴트',
-    DESCRIPTION: '구직자 프로필과 채용공고 간의 적합성을 평가',
-    TOOLS: [
-      { 
-        type: 'retrieval' as const, // 변경: 'function' -> 'retrieval' (검색 도구)
-        // name과 function 필드는 retrieval 타입에서 필요하지 않음
-      }
-    ]
-  },
-  RUN: {
-    MAX_RETRIES: 60,
-    DELAY_MS: 1000,
-    STATUS: {
-      COMPLETED: 'completed',
-      FAILED: 'failed',
-      CANCELLED: 'cancelled',
-      REQUIRES_ACTION: 'requires_action'
-    }
+export const MistralAIConstants = {
+  MODEL: {
+    CHAT: 'mistral-small-latest',
+    DEFAULT: 'mistral-small-latest'
   },
   ROLES: {
     USER: 'user' as const,
-    ASSISTANT: 'assistant' as const
+    ASSISTANT: 'assistant' as const,
+    SYSTEM: 'system' as const
   },
-  FILE_PURPOSE: 'assistants' as const,
+  TEMPERATURE: 0.1,
+  MAX_TOKENS: 4096,
   MESSAGE_PREFIXES: {
     PROFILE: '# 구직자 프로필\n\n',
     JOBS_LIST: '# 평가할 채용공고 목록\n\n',
@@ -45,7 +30,8 @@ export const OpenAIConstants = {
 export const PathConstants = {
   DATA_DIR: 'data',
   TEMP_DIR: 'temp',
-  OPENAI_PERSIST_FILE: 'openai-persist.json'
+  MISTRAL_PERSIST_FILE: 'mistral-persist.json',
+  OPENAI_PERSIST_FILE: 'openai-persist.json'  // 추가: OpenAI 설정 저장용
 };
 
 /**

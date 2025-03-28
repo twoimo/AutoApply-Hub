@@ -8,13 +8,13 @@ dotenv.config();
  */
 export class ConfigService {
   /**
-   * 환경 변수에서 OpenAI API 키 가져오기
+   * 환경 변수에서 Mistral API 키 가져오기
    */
-  public getOpenAIApiKey(): string {
-    const apiKey = process.env.OPENAI_API_KEY_FIX;
+  public getMistralApiKey(): string {
+    const apiKey = process.env.MISTRAL_API_KEY;
     
     if (!apiKey) {
-      console.warn('경고: OpenAI API 키가 설정되지 않았습니다.');
+      console.warn('경고: Mistral API 키가 설정되지 않았습니다.');
     }
     
     return apiKey || '';

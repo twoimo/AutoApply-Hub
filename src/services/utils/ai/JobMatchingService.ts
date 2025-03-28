@@ -1,9 +1,9 @@
 import { JobInfo } from '../types/JobTypes';
 import { LoggerService } from '../logging/LoggerService';
-import { OpenAIAssistantService } from './OpenAIAssistantService';
+import { MistralAIService } from './MistralAIService';
 import { JobRepository } from '../db/JobRepository';
 import { ConfigService } from '../config/ConfigService';
-import { JobMatchingConstants, OpenAIConstants } from '../constants/AppConstants';
+import { JobMatchingConstants } from '../constants/AppConstants';
 import { getDefaultCandidateProfile, formatCandidateProfile } from './CandidateProfile';
 
 /**
@@ -30,28 +30,22 @@ export interface JobMatchResult {
  */
 export class JobMatchingService {
   private logger: LoggerService;
-  private openaiService: OpenAIAssistantService;
+  private mistralService: MistralAIService;
   private jobRepository: JobRepository;
   private configService: ConfigService;
   private initialized: boolean = false;
-  
-  // OpenAI Assistant 관련 ID 정보
-  private assistantId: string | null = null;
-  private threadId: string | null = null;
   
   // 기본 후보자 프로필
   private candidateProfile = getDefaultCandidateProfile();
 
   constructor(
     logger: LoggerService,
-    openaiApiKey: string,
-    jobRepository: JobRepository,
-    assistantId?: string
+    mistralApiKey: string,
+    jobRepository: JobRepository
   ) {
     this.logger = logger;
-    this.openaiService = new OpenAIAssistantService(openaiApiKey, logger);
+    this.mistralService = new MistralAIService(mistralApiKey, logger);
     this.jobRepository = jobRepository;
-    this.assistantId = assistantId || null;
     this.configService = new ConfigService();
   }
 
@@ -60,17 +54,8 @@ export class JobMatchingService {
    */
   public async initialize(): Promise<void> {
     try {
-      // 어시스턴트가 이미 존재하면 재사용
-      if (!this.assistantId) {
-        this.assistantId = await this.openaiService.initializeAssistant();
-      } else {
-        await this.openaiService.initializeAssistant(this.assistantId);
-      }
-
-      // 스레드가 이미 존재하면 재사용
-      if (!this.threadId) {
-        this.threadId = await this.openaiService.createThread();
-      }
+      // Mistral 채팅 세션 초기화
+      await this.mistralService.initializeChat();
       
       this.initialized = true;
       this.logger.log('채용 매칭 서비스 초기화 완료', 'success');
@@ -103,12 +88,10 @@ export class JobMatchingService {
       // 구직자 프로필 문자열 생성
       const candidateProfileText = formatCandidateProfile(this.candidateProfile);
       
-      // OpenAI 어시스턴트를 통한 매칭 결과 가져오기
-      const matchResults = await this.openaiService.sendJobsForMatching(
+      // Mistral AI를 통한 매칭 결과 가져오기
+      const matchResults = await this.mistralService.matchJobsWithProfile(
         jobs,
-        candidateProfileText,
-        this.threadId || undefined,
-        this.assistantId || undefined
+        candidateProfileText
       );
       
       // 결과 처리 및 반환
@@ -119,7 +102,8 @@ export class JobMatchingService {
   }
 
   /**
-   * Vector Store를 활용한 채용공고 매칭
+   * Vector Store를 활용한 채용공고 매칭 대체 구현
+   * (간소화된 버전으로 일반 검색 수행)
    */
   public async matchJobsWithVectorStore(
     jobs: JobInfo[], 
@@ -128,20 +112,17 @@ export class JobMatchingService {
     try {
       await this.ensureInitialized();
       
-      // 1. 채용공고 데이터를 Vector Store에 업로드
-      const fileId = await this.openaiService.uploadJobDataToVectorStore(jobs);
-      
-      // 2. 구직자 프로필을 기반으로 검색 쿼리 생성
+      // 구직자 프로필을 기반으로 검색 쿼리 생성
       const profileText = formatCandidateProfile(this.candidateProfile);
       const searchQuery = this.createSearchQueryFromProfile(profileText);
       
-      // 3. Vector Store 검색 수행
-      const searchResults = await this.openaiService.searchJobsWithQuery(searchQuery, fileId);
+      // 검색 수행 (실제 벡터 검색 대신 모든 채용공고를 Mistral에게 전달)
+      const searchResults = await this.mistralService.searchJobsWithQuery(searchQuery, jobs);
       
-      // 4. 검색 결과 처리 및 반환
+      // 검색 결과 처리 및 반환
       return this.processMatchResults(searchResults, limit);
     } catch (error) {
-      this.handleError('Vector Store 매칭 중 오류', error);
+      this.handleError('채용공고 검색 중 오류', error);
     }
   }
 

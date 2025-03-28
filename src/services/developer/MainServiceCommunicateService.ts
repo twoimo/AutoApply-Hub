@@ -50,18 +50,16 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   private async initializeMatchingService(): Promise<void> {
     try {
       // 환경 변수를 ConfigService에서 가져옴
-      const openaiApiKey = this.configService.getOpenAIApiKey();
-      const assistantId = this.configService.getOpenAIAssistantId();
+      const mistralApiKey = this.configService.getMistralApiKey();
       
-      if (!openaiApiKey) {
-        throw new Error('OpenAI API 키가 설정되지 않았습니다.');
+      if (!mistralApiKey) {
+        throw new Error('Mistral API 키가 설정되지 않았습니다.');
       }
       
       this.matchingService = new JobMatchingService(
         this.logger,
-        openaiApiKey,
-        this.jobRepository,
-        assistantId
+        mistralApiKey,
+        this.jobRepository
       );
       
       // 서비스 초기화
