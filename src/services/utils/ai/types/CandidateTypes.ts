@@ -1,5 +1,5 @@
 /**
- * 구직자 프로필 - 교육 정보
+ * 학력 정보 인터페이스
  */
 export interface Education {
   degree: string;
@@ -9,7 +9,7 @@ export interface Education {
 }
 
 /**
- * 구직자 프로필 - 경력 정보
+ * 경력 정보 인터페이스
  */
 export interface Experience {
   role: string;
@@ -19,7 +19,15 @@ export interface Experience {
 }
 
 /**
- * 구직자 프로필 - 기술 스택
+ * 프로젝트 정보 인터페이스
+ */
+export interface Project {
+  title: string;
+  tech: string;
+}
+
+/**
+ * 기술 스택 인터페이스
  */
 export interface Skills {
   ai_ml: string[];
@@ -29,16 +37,7 @@ export interface Skills {
 }
 
 /**
- * 구직자 프로필 - 프로젝트 경험
- */
-export interface Project {
-  title: string;
-  tech: string;
-  description?: string;
-}
-
-/**
- * 구직자 프로필 - 선호 사항
+ * 선호 사항 인터페이스
  */
 export interface Preferences {
   fields: string[];
@@ -48,7 +47,7 @@ export interface Preferences {
 }
 
 /**
- * 구직자 프로필 전체 데이터
+ * 구직자 프로필 전체 인터페이스
  */
 export interface CandidateProfile {
   name: string;

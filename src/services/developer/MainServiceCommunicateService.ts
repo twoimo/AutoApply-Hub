@@ -1,21 +1,12 @@
-import { MicroServiceABC, sleep } from "@qillie/wheel-micro-service";
+import { MicroServiceABC } from "@qillie/wheel-micro-service";
 import ApiCallService from "./ApiCallService";
 import DataConverterService from "./DataConverterService";
-import axios from "axios";
-import moment from "moment";
-import sequelize from "sequelize";
-import fs from "fs";
-import path from "path";
-import { v4 as uuidv4 } from "uuid";
 import ScraperControlService from "../utils/ScraperControlService";
-import puppeteer from "puppeteer";
 import { JobMatchingService, JobMatchResult } from "../utils/ai/JobMatchingService";
 import { LoggerService } from "../utils/logging/LoggerService";
 import { JobRepository } from "../utils/db/JobRepository";
-import dotenv from 'dotenv';
-
-// 환경 변수 로드
-dotenv.config();
+import { ConfigService } from "../utils/config/ConfigService";
+import { JobMatchingConstants } from "../utils/constants/AppConstants";
 
 /**
  * @name 메인 서비스 노출 클래스
@@ -43,14 +34,12 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   private matchingService: JobMatchingService | null = null;
   private logger: LoggerService;
   private jobRepository: JobRepository;
+  private configService: ConfigService;
   
-  // OpenAI API 키 및 어시스턴트 ID
-  private readonly openaiApiKey: string = process.env.OPENAI_API_KEY_FIX ?? "";
-  private readonly assistantId: string = process.env.OPENAI_ASSISTANT_ID ?? "";
-
   constructor() {
     super([]);
     this.logger = new LoggerService(true);
+    this.configService = new ConfigService();
     this.jobRepository = new JobRepository(this.logger);
     this.initializeMatchingService();
   }
@@ -60,11 +49,19 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    */
   private async initializeMatchingService(): Promise<void> {
     try {
+      // 환경 변수를 ConfigService에서 가져옴
+      const openaiApiKey = this.configService.getOpenAIApiKey();
+      const assistantId = this.configService.getOpenAIAssistantId();
+      
+      if (!openaiApiKey) {
+        throw new Error('OpenAI API 키가 설정되지 않았습니다.');
+      }
+      
       this.matchingService = new JobMatchingService(
         this.logger,
-        this.openaiApiKey,
+        openaiApiKey,
         this.jobRepository,
-        this.assistantId
+        assistantId
       );
       
       // 서비스 초기화
@@ -72,6 +69,8 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
       this.logger.log('채용공고 매칭 서비스 초기화 완료', 'success');
     } catch (error) {
       this.logger.log(`채용공고 매칭 서비스 초기화 실패: ${error}`, 'error');
+      // 초기화 실패 시 null로 설정하여 재시도 가능하게 함
+      this.matchingService = null;
     }
   }
 
@@ -81,7 +80,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @path /test
    */
   public async test({}: {}) {
-    await this.scraperControlService.openSaramin({});
+    return await this.scraperControlService.openSaramin({});
   }
 
   /**
@@ -90,7 +89,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @path /run
    */
   public async run({}: {}) {
-    await this.scraperControlService.scheduleWeekdayScraping();
+    return await this.scraperControlService.scheduleWeekdayScraping();
   }
   
   /**
@@ -101,8 +100,8 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @objectParams {number} matchLimit - 결과로 반환할 최대 매칭 수 (기본값: 5)
    */
   public async matchJobs({
-    limit = 10,
-    matchLimit = 5
+    limit = JobMatchingConstants.DEFAULT_JOB_LIMIT,
+    matchLimit = JobMatchingConstants.DEFAULT_MATCH_LIMIT
   }: {
     limit?: number;
     matchLimit?: number;
@@ -112,12 +111,13 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
     message?: string;
   }> {
     try {
+      // 매칭 서비스가 없으면 초기화 시도
       if (!this.matchingService) {
         await this.initializeMatchingService();
-      }
-      
-      if (!this.matchingService) {
-        throw new Error('매칭 서비스가 초기화되지 않았습니다');
+        
+        if (!this.matchingService) {
+          return this.createErrorResponse('매칭 서비스 초기화에 실패했습니다. 설정을 확인해주세요.');
+        }
       }
       
       this.logger.log(`채용공고 매칭 시작 (최대 ${limit}개 중 상위 ${matchLimit}개 결과)`, 'info');
@@ -128,6 +128,9 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
       // 결과 저장
       if (results.length > 0) {
         await this.matchingService.saveMatchResults(results);
+        this.logger.log(`총 ${results.length}개의 매칭 결과가 저장되었습니다.`, 'success');
+      } else {
+        this.logger.log('매칭 결과가 없습니다.', 'warning');
       }
       
       return {
@@ -135,11 +138,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
         results
       };
     } catch (error) {
-      this.logger.log(`채용공고 매칭 API 오류: ${error}`, 'error');
-      return {
-        success: false,
-        message: `채용공고 매칭 중 오류가 발생했습니다: ${error}`
-      };
+      return this.createErrorResponse(`채용공고 매칭 중 오류가 발생했습니다: ${error}`);
     }
   }
   
@@ -150,7 +149,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @objectParams {number} limit - 반환할 추천 채용공고 수 (기본값: 5)
    */
   public async getRecommendedJobs({
-    limit = 5
+    limit = JobMatchingConstants.DEFAULT_MATCH_LIMIT
   }: {
     limit?: number;
   }): Promise<{
@@ -170,16 +169,28 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
         };
       }
       
+      this.logger.log(`${recommendedJobs.length}개의 추천 채용공고를 찾았습니다.`, 'success');
+      
       return {
         success: true,
         results: recommendedJobs
       };
     } catch (error) {
-      this.logger.log(`추천 채용공고 가져오기 오류: ${error}`, 'error');
-      return {
-        success: false,
-        message: `추천 채용공고를 가져오는 중 오류가 발생했습니다: ${error}`
-      };
+      return this.createErrorResponse(`추천 채용공고를 가져오는 중 오류가 발생했습니다: ${error}`);
     }
+  }
+  
+  /**
+   * 에러 응답 생성 헬퍼 메서드
+   */
+  private createErrorResponse(message: string): {
+    success: boolean;
+    message: string;
+  } {
+    this.logger.log(message, 'error');
+    return {
+      success: false,
+      message
+    };
   }
 }
