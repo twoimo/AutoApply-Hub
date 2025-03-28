@@ -101,8 +101,8 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @objectParams {number} matchLimit - 결과로 반환할 최대 매칭 수 (기본값: 5)
    */
   public async matchJobs({
-    limit = 100,
-    matchLimit = 100
+    limit = 10,
+    matchLimit = 5
   }: {
     limit?: number;
     matchLimit?: number;
