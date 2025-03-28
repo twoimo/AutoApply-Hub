@@ -13,6 +13,7 @@ import { JobMatchingService, JobMatchResult } from "../utils/ai/JobMatchingServi
 import { LoggerService } from "../utils/logging/LoggerService";
 import { JobRepository } from "../utils/db/JobRepository";
 import dotenv from 'dotenv';
+import { OpenAIAssistantService } from "../utils/ai/OpenAIAssistantService";
 
 // 환경 변수 로드
 dotenv.config();
@@ -43,6 +44,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   private matchingService: JobMatchingService | null = null;
   private logger: LoggerService;
   private jobRepository: JobRepository;
+  private openAIAssistantService: OpenAIAssistantService;
   
   // OpenAI API 키 및 어시스턴트 ID
   private readonly openaiApiKey: string = process.env.OPENAI_API_KEY ?? "";
@@ -52,6 +54,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
     super([]);
     this.logger = new LoggerService(true);
     this.jobRepository = new JobRepository(this.logger);
+    this.openAIAssistantService = new OpenAIAssistantService(this.openaiApiKey, this.logger);
     this.initializeMatchingService();
   }
 
@@ -181,5 +184,17 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
         message: `추천 채용공고를 가져오는 중 오류가 발생했습니다: ${error}`
       };
     }
+  }
+
+  /**
+   * @name DB 데이터 기반 매칭
+   * @httpMethod get
+   * @path /match-jobs-vector
+   */
+  public async matchJobsWithVectorStore({}: {}) {
+    // 가정: JobRepository가 모든 테이블 데이터를 반환하는 함수를 제공
+    const dbData = await this.jobRepository.getAllTablesData();
+    const result = await this.openAIAssistantService.matchJobsWithVectorStore(dbData);
+    return { success: true, result };
   }
 }

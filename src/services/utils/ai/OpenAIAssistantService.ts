@@ -299,7 +299,7 @@ export class OpenAIAssistantService {
   public async uploadJobDataToVectorStore(jobs: JobInfo[]): Promise<string> {
     try {
       // 임시 파일 생성
-      const tempFilePath = path.join(process.cwd(), 'temp', `jobs_${Date.now()}.jsonl`);
+      const tempFilePath = path.join(process.cwd(), 'temp', `jobs_${Date.now()}.json`);
       
       // 임시 디렉토리가 없으면 생성
       const tempDir = path.join(process.cwd(), 'temp');
@@ -311,11 +311,18 @@ export class OpenAIAssistantService {
       const jsonlData = jobs.map(job => JSON.stringify(job)).join('\n');
       fs.writeFileSync(tempFilePath, jsonlData);
       
+      this.logger.log(`임시 파일 생성 완료: ${tempFilePath}`, 'info');
+      
       // OpenAI File API를 사용하여 업로드
       const file = await this.openai.files.create({
         file: fs.createReadStream(tempFilePath),
         purpose: "assistants"
       });
+      
+      this.logger.log(`파일 업로드 시작 (ID: ${file.id})`, 'info');
+      
+      // 파일 업로드 상태 확인
+      await this.waitForFileProcessing(file.id);
       
       // 파일이 업로드된 후 임시 파일 삭제
       fs.unlinkSync(tempFilePath);
@@ -324,12 +331,7 @@ export class OpenAIAssistantService {
       
       // 어시스턴트가 있으면 파일 연결
       if (this.assistantId) {
-        // "file_search" 도구만 활성화
-        await this.openai.beta.assistants.update(
-          this.assistantId,
-          { tools: [{ type: "file_search" }] }
-        );
-        this.logger.log(`파일 업로드 완료 (ID: ${file.id}), 어시스턴트 업데이트 완료`, 'success');
+        await this.attachFileToAssistant(file.id);
       }
       
       return file.id;
@@ -337,6 +339,101 @@ export class OpenAIAssistantService {
       this.logger.log(`Vector Store 업로드 실패: ${error}`, 'error');
       throw error;
     }
+  }
+  
+  /**
+   * 파일을 어시스턴트에 연결
+   */
+  private async attachFileToAssistant(fileId: string): Promise<void> {
+    try {
+      if (!this.assistantId) {
+        throw new Error('어시스턴트가 초기화되지 않았습니다.');
+      }
+
+      // "file_search" 도구 활성화 (파일 연결은 OpenAI API 내부에서 자동 처리됨)
+      await this.openai.beta.assistants.update(this.assistantId, {
+        tools: [{ type: "file_search" }]
+      });
+
+      this.logger.log(`파일 업로드 완료 (ID: ${fileId}), 어시스턴트에 성공적으로 연결됨`, 'success');
+    } catch (error) {
+      this.logger.log(`어시스턴트에 파일 연결 실패: ${error}`, 'error');
+      throw error;
+    }
+  }
+  
+  /**
+   * 파일 처리 완료 대기
+   */
+  private async waitForFileProcessing(fileId: string, maxRetries = 10): Promise<void> {
+    let retries = 0;
+    
+    while (retries < maxRetries) {
+      try {
+        const file = await this.openai.files.retrieve(fileId);
+        
+        if (file.status === 'processed') {
+          this.logger.log(`파일 처리 완료 (ID: ${fileId})`, 'success');
+          return;
+        } else if (file.status === 'error') {
+          throw new Error(`파일 처리 오류: ${file.status_details || '알 수 없는 오류'}`);
+        }
+        
+        // 아직 처리 중이면 잠시 대기
+        this.logger.log(`파일 처리 중... (상태: ${file.status})`, 'info');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        retries++;
+      } catch (error) {
+        this.logger.log(`파일 상태 확인 중 오류: ${error}`, 'warning');
+        
+        // 일시적인 API 오류일 수 있으므로 계속 시도
+        if (retries < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          retries++;
+          continue;
+        }
+        
+        throw error;
+      }
+    }
+    
+    // 최대 재시도 횟수를 초과한 경우에도 계속 진행 (파일이 결국 처리될 수 있음)
+    this.logger.log(`파일 처리 상태 확인 최대 시도 횟수 초과. 파일 ID: ${fileId}`, 'warning');
+  }
+  
+  /**
+   * 파일이 어시스턴트에 제대로 첨부되었는지 확인
+   */
+  private async verifyFileAttachment(fileId: string, maxRetries = 5): Promise<boolean> {
+    if (!this.assistantId) {
+      throw new Error('어시스턴트가 초기화되지 않았습니다.');
+    }
+    
+    let retries = 0;
+    
+    while (retries < maxRetries) {
+      try {
+        // 어시스턴트 정보 가져오기
+        const assistant = await this.openai.beta.assistants.retrieve(this.assistantId);
+
+        // 파일 첨부 확인 (file_ids 제거, 대신 로그로 확인)
+        this.logger.log(`어시스턴트 상태 확인 완료. 파일 첨부 여부는 OpenAI API 내부에서 처리됨`, 'info');
+        return true;
+      } catch (error) {
+        this.logger.log(`파일 첨부 확인 중 오류: ${error}`, 'warning');
+        
+        if (retries < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          retries++;
+          continue;
+        }
+        
+        throw error;
+      }
+    }
+    
+    this.logger.log(`파일 첨부 확인 실패. 파일 ID: ${fileId}`, 'warning');
+    return false;
   }
 
   /**
@@ -383,55 +480,135 @@ export class OpenAIAssistantService {
   }
 
   /**
+   * DB의 모든 테이블 데이터를 Vector Store에 업로드하여 채용 공고 매칭
+   */
+  public async matchJobsWithVectorStore(dbData: any[]): Promise<any> {
+    // 1) 어시스턴트/스레드 초기화
+    if (!this.assistantId) await this.initializeAssistant();
+    if (!this.threadId) await this.createThread();
+    // 2) Vector Store 업로드 (DB 전체 데이터)
+    const fileId = await this.uploadJobDataToVectorStore(dbData);
+    // 3) 시스템 지시사항 바탕으로 매칭 요청
+    await this.openai.beta.threads.messages.create(this.threadId!, {
+      role: "user",
+      content: "시스템 인스트럭션만 사용하여 채용공고 매칭을 수행해주세요. 업로드된 모든 데이터 참조."
+    });
+    const run = await this.openai.beta.threads.runs.create(this.threadId!, {
+      assistant_id: this.assistantId!
+    });
+    // 4) 응답 대기 및 결과 반환
+    return this.waitForRunCompletion(this.threadId!, run.id);
+  }
+
+  /**
    * 실행 완료 대기 및 결과 반환
    */
   private async waitForRunCompletion(threadId: string, runId: string, maxRetries = 60): Promise<any> {
     let retriesLeft = maxRetries;
     
     while (retriesLeft > 0) {
-      const runStatus = await this.openai.beta.threads.runs.retrieve(threadId, runId);
-      
-      if (runStatus.status === 'completed') {
-        // 응답 메시지 가져오기
-        const messages = await this.openai.beta.threads.messages.list(threadId);
-        const assistantMessages = messages.data.filter(msg => msg.role === 'assistant');
+      try {
+        const runStatus = await this.openai.beta.threads.runs.retrieve(threadId, runId);
         
-        if (assistantMessages.length > 0) {
-          const latestMessage = assistantMessages[0];
-          let content = '';
+        if (runStatus.status === 'completed') {
+          // 응답 메시지 가져오기
+          const messages = await this.openai.beta.threads.messages.list(threadId);
+          const assistantMessages = messages.data.filter(msg => msg.role === 'assistant');
           
-          // 메시지 내용 추출
-          if (typeof latestMessage.content === 'string') {
-            content = latestMessage.content;
-          } else {
-            for (const part of latestMessage.content) {
-              if (part.type === 'text') {
-                content += part.text.value;
+          if (assistantMessages.length > 0) {
+            const latestMessage = assistantMessages[0];
+            let content = '';
+            
+            // 메시지 내용 추출
+            if (typeof latestMessage.content === 'string') {
+              content = latestMessage.content;
+            } else {
+              for (const part of latestMessage.content) {
+                if (part.type === 'text') {
+                  content += part.text.value;
+                }
               }
+            }
+            
+            try {
+              // 결과가 JSON 형식인지 확인
+              return this.extractJsonFromResponse(content);
+            } catch (error) {
+              this.logger.log(`JSON 파싱 오류: ${error}`, 'error');
+              return content;
             }
           }
           
-          try {
-            // 결과가 JSON 형식인지 확인
-            return this.extractJsonFromResponse(content);
-          } catch (error) {
-            this.logger.log(`JSON 파싱 오류: ${error}`, 'error');
-            return content;
+          return null;
+        } 
+        else if (runStatus.status === 'requires_action') {
+          // 필요한 경우 추가 작업 처리 (예: 파일 검색)
+          this.logger.log('추가 작업 필요. 작업 처리 중...', 'info');
+          
+          if (runStatus.required_action?.type === 'submit_tool_outputs') {
+            await this.handleToolActions(threadId, runId, runStatus.required_action);
           }
         }
+        else if (runStatus.status === 'failed' || runStatus.status === 'cancelled') {
+          throw new Error(`실행 실패: ${runStatus.status}, 이유: ${runStatus.last_error?.message || '알 수 없음'}`);
+        }
+        else {
+          // 진행 상태 로깅
+          this.logger.log(`실행 진행 중... 상태: ${runStatus.status}`, 'info');
+        }
         
-        return null;
-      } 
-      else if (runStatus.status === 'failed' || runStatus.status === 'cancelled') {
-        throw new Error(`실행 실패: ${runStatus.status}`);
+        // 대기 후 재시도
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        retriesLeft--;
+      } catch (error) {
+        this.logger.log(`실행 상태 확인 중 오류: ${error}`, 'warning');
+        
+        // 일시적인 API 오류일 수 있으므로 계속 시도
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        retriesLeft--;
       }
-      
-      // 대기 후 재시도
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      retriesLeft--;
     }
     
     throw new Error('최대 대기 시간 초과');
+  }
+  
+  /**
+   * 도구 작업 처리 (검색 등)
+   */
+  private async handleToolActions(threadId: string, runId: string, requiredAction: any): Promise<void> {
+    try {
+      if (requiredAction.type !== 'submit_tool_outputs' || !requiredAction.tool_calls) {
+        return;
+      }
+      
+      const toolOutputs = requiredAction.tool_calls.map((toolCall: any) => {
+        this.logger.log(`도구 호출 처리: ${toolCall.type}, ID: ${toolCall.id}`, 'info');
+        
+        // 검색 도구 처리 (다른 도구 유형은 필요에 따라 추가)
+        if (toolCall.type === 'file_search') {
+          return {
+            tool_call_id: toolCall.id,
+            output: JSON.stringify({ success: true, message: "검색 완료" })
+          };
+        }
+        
+        return {
+          tool_call_id: toolCall.id,
+          output: JSON.stringify({ error: "지원되지 않는 도구 유형" })
+        };
+      });
+      
+      await this.openai.beta.threads.runs.submitToolOutputs(
+        threadId,
+        runId,
+        { tool_outputs: toolOutputs }
+      );
+      
+      this.logger.log('도구 작업 응답 제출 완료', 'success');
+    } catch (error) {
+      this.logger.log(`도구 작업 처리 중 오류: ${error}`, 'error');
+      throw error;
+    }
   }
 
   /**

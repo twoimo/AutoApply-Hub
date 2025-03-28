@@ -214,4 +214,38 @@ export class JobRepository {
       return [];
     }
   }
+
+  /**
+   * 모든 채용 공고 데이터 가져오기 (Vector Store 처리용)
+   */
+  public async getAllTablesData(): Promise<JobInfo[]> {
+    try {
+      const jobs = await CompanyRecruitmentTable.findAll({
+        order: [['scraped_at', 'DESC']],
+        raw: true
+      });
+      
+      this.logger.log(`Vector Store 처리를 위해 ${jobs.length}개 채용 공고 데이터 로드 완료`, 'info');
+      
+      // DB 모델을 JobInfo 형식으로 변환
+      return jobs.map(job => ({
+        id: job.id,
+        companyName: job.company_name,
+        jobTitle: job.job_title,
+        jobLocation: job.job_location || '',
+        jobType: job.job_type || '',
+        jobSalary: job.job_salary || '',
+        deadline: job.deadline || '',
+        employmentType: job.employment_type || '',
+        url: job.job_url || '',
+        companyType: job.company_type || '',
+        jobDescription: job.job_description || '',
+        descriptionType: 'text',
+        scrapedAt: job.scraped_at ? job.scraped_at.toISOString() : new Date().toISOString()
+      }));
+    } catch (error) {
+      this.logger.log(`모든 채용 공고 데이터 로드 실패: ${error}`, 'error');
+      return [];
+    }
+  }
 }
