@@ -13,6 +13,12 @@ export interface JobInfo {
   companyType?: string;
   jobDescription?: string;
   descriptionType?: string;
+  
+  // 추가 ID 필드
+  id?: number;
+  
+  // 스크랩 시점
+  scrapedAt?: string;
 }
 
 /**

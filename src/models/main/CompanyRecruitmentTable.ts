@@ -53,6 +53,14 @@ export default class CompanyRecruitmentTable extends ModelABC {
   
   @AllowNull(true)
   @Column({
+    type: DataType.STRING,
+    comment: "채용 공고 내용 유형 (text, html 등)",
+    defaultValue: "text"
+  })
+  description_type!: string;
+  
+  @AllowNull(true)
+  @Column({
     type: DataType.TEXT,  // 긴 텍스트를 저장할 수 있는 타입 (URL은 길 수 있음)
     comment: "채용 공고 URL",
   })
@@ -127,4 +135,41 @@ export default class CompanyRecruitmentTable extends ModelABC {
     defaultValue: false,  // 기본값은 false (초기에는 지원하지 않은 상태)
   })
   is_applied!: boolean;
+  
+  // 매칭 결과 관련 필드
+  @AllowNull(true)
+  @Column({
+    type: DataType.INTEGER,
+    comment: "매칭 점수 (0-100)",
+  })
+  match_score!: number;
+  
+  @AllowNull(true)
+  @Column({
+    type: DataType.TEXT,
+    comment: "매칭 이유",
+  })
+  match_reason!: string;
+  
+  @AllowNull(true)
+  @Column({
+    type: DataType.TEXT,
+    comment: "지원자의 강점",
+  })
+  strength!: string;
+  
+  @AllowNull(true)
+  @Column({
+    type: DataType.TEXT,
+    comment: "지원자와 직무 간 격차",
+  })
+  weakness!: string;
+  
+  @AllowNull(true)
+  @Column({
+    type: DataType.BOOLEAN,
+    comment: "지원 추천 여부",
+    defaultValue: false,
+  })
+  is_recommended!: boolean;
 }
