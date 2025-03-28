@@ -40,7 +40,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   }
 
   /**
-   * @name 시작 함수
+   * @name 시작 함수a
    * @httpMethod get
    * @path /run
    */
