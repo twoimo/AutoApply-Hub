@@ -168,16 +168,43 @@ export class JobMatchingService {
     matchLimit: number = JobMatchingConstants.DEFAULT_MATCH_LIMIT
   ): Promise<JobMatchResult[]> {
     try {
-      // 데이터베이스에서 채용공고 가져오기 (최신순)
-      const jobs = await this.jobRepository.getRecentJobs(limit);
+      // 데이터베이스에서 매칭되지 않은 채용공고 가져오기 (ID 오름차순)
+      const jobs = await this.jobRepository.getUnmatchedJobs(limit);
       
       if (jobs.length === 0) {
         this.logger.log('매칭할 채용공고가 없습니다', 'warning');
         return [];
       }
       
-      // 가져온 채용공고로 매칭 수행
-      return await this.matchJobs(jobs, matchLimit);
+      this.logger.log(`${jobs.length}개의 매칭되지 않은 채용 공고를 매칭합니다...`, 'info');
+      
+      // 채용공고 ID 목록 출력
+      const jobIds = jobs.map(job => job.id).join(', ');
+      this.logger.log(`매칭 대상 ID: ${jobIds}`, 'info');
+      
+      // 구직자 프로필 문자열 생성
+      const candidateProfileText = formatCandidateProfile(this.candidateProfile);
+      
+      // Mistral AI를 통한 매칭 결과 가져오기
+      const matchResults = await this.mistralService.matchJobsWithProfile(
+        jobs,
+        candidateProfileText
+      );
+      
+      // 결과 처리 및 필터링
+      const processedResults = this.processMatchResults(matchResults, matchLimit);
+      
+      // 결과 요약 출력
+      this.logger.log(`매칭 결과: ${processedResults.length}개 매칭됨`, 'success');
+      processedResults.forEach((result, idx) => {
+        this.logger.log(`[${idx+1}] ID ${result.id}: ${result.score}점 (${result.apply_yn ? '지원 권장' : '지원 비권장'})`, 
+          result.apply_yn ? 'success' : 'warning');
+      });
+      
+      // 매칭 상태 업데이트 (전체 매칭 대상 채용공고를 처리됨으로 표시)
+      await this.jobRepository.updateMatchedStatus(jobs.map(job => job.id as number));
+      
+      return processedResults;
     } catch (error) {
       this.handleError('DB 채용공고 매칭 실패', error);
     }

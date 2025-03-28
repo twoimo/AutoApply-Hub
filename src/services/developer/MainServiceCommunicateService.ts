@@ -26,7 +26,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   /**
    * 스크래퍼 컨트롤 서비스
    */
-  private scraperControlService = new ScraperControlService();
+  private scraperControlService = new ScraperControlService([]);
   
   /**
    * 채용공고 매칭 서비스 관련 변수
@@ -78,6 +78,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @path /test
    */
   public async test({}: {}) {
+    // 스크래퍼 컨트롤 서비스의 메소드 호출
     return await this.scraperControlService.openSaramin({});
   }
 
@@ -87,15 +88,16 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @path /run
    */
   public async run({}: {}) {
-    return await this.scraperControlService.scheduleWeekdayScraping();
+    // 스크래퍼 컨트롤 서비스의 메소드 호출
+    return await this.scraperControlService.runAutoJobMatching();
   }
   
   /**
    * @name 채용공고 매칭 실행
    * @httpMethod get
    * @path /match-jobs
-   * @objectParams {number} limit - 가져올 채용공고 수 (기본값: 10)
-   * @objectParams {number} matchLimit - 결과로 반환할 최대 매칭 수 (기본값: 5)
+   * @objectParams {number} limit - 가져올 매칭되지 않은 채용공고 수 (기본값: 100)
+   * @objectParams {number} matchLimit - 결과로 반환할 최대 매칭 수 (기본값: 100)
    */
   public async matchJobs({
     limit = JobMatchingConstants.DEFAULT_JOB_LIMIT,
@@ -118,7 +120,10 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
         }
       }
       
-      this.logger.log(`채용공고 매칭 시작 (최대 ${limit}개 중 상위 ${matchLimit}개 결과)`, 'info');
+      // 매칭되지 않은 채용공고 수 확인
+      const unmatchedCount = await this.jobRepository.countUnmatchedJobs();
+      
+      this.logger.log(`채용공고 매칭 시작 (총 ${unmatchedCount}개 중 최대 ${limit}개 처리, 상위 ${matchLimit}개 결과 반환)`, 'info');
       
       // 매칭 실행
       const results = await this.matchingService.matchJobsFromDb(limit, matchLimit);
@@ -133,7 +138,8 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
       
       return {
         success: true,
-        results
+        results,
+        message: `${results.length}개 채용공고 매칭 완료`
       };
     } catch (error) {
       return this.createErrorResponse(`채용공고 매칭 중 오류가 발생했습니다: ${error}`);

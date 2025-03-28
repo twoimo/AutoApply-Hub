@@ -214,4 +214,103 @@ export class JobRepository {
       return [];
     }
   }
+
+  /**
+   * 매칭되지 않은 채용 공고 가져오기
+   * is_gpt_checked가 false이거나 null인 항목만 조회
+   * @param limit 가져올 최대 항목 수
+   * @returns 매칭되지 않은 채용 정보 배열
+   */
+  public async getUnmatchedJobs(limit: number = 100): Promise<JobInfo[]> {
+    try {
+      const jobs = await CompanyRecruitmentTable.findAll({
+        where: {
+          is_gpt_checked: {
+            [sequelize.Op.or]: [
+              null,
+              false
+            ]
+          }
+        },
+        order: [['id', 'ASC']],
+        limit,
+        raw: true
+      });
+      
+      this.logger.logVerbose(`${jobs.length}개의 매칭되지 않은 채용 공고를 조회했습니다.`);
+      
+      // DB 모델을 JobInfo 형식으로 변환
+      return jobs.map(job => ({
+        id: job.id,
+        companyName: job.company_name,
+        jobTitle: job.job_title,
+        jobLocation: job.job_location || '',
+        jobType: job.job_type || '',
+        jobSalary: job.job_salary || '',
+        deadline: job.deadline || '',
+        employmentType: job.employment_type || '',
+        url: job.job_url || '',
+        companyType: job.company_type || '',
+        jobDescription: job.job_description || '',
+        descriptionType: 'text',
+        scrapedAt: job.scraped_at ? job.scraped_at.toISOString() : new Date().toISOString()
+      }));
+    } catch (error) {
+      this.logger.log(`매칭되지 않은 채용 공고 조회 중 오류: ${error}`, 'error');
+      return [];
+    }
+  }
+
+  /**
+   * 채용 공고의 매칭 상태 업데이트
+   * @param jobIds 매칭 완료된 채용 공고 ID 배열
+   * @returns 성공 여부
+   */
+  public async updateMatchedStatus(jobIds: number[]): Promise<boolean> {
+    if (!jobIds.length) return true;
+    
+    try {
+      await CompanyRecruitmentTable.update(
+        { is_gpt_checked: true },
+        {
+          where: {
+            id: {
+              [sequelize.Op.in]: jobIds
+            }
+          }
+        }
+      );
+      
+      this.logger.logVerbose(`${jobIds.length}개 채용 공고의 매칭 상태가 업데이트되었습니다.`);
+      return true;
+    } catch (error) {
+      this.logger.log(`채용 공고 매칭 상태 업데이트 중 오류: ${error}`, 'error');
+      return false;
+    }
+  }
+
+  /**
+   * 매칭되지 않은 채용 공고 개수 조회
+   * @returns 매칭되지 않은 채용 공고 수
+   */
+  public async countUnmatchedJobs(): Promise<number> {
+    try {
+      const result = await CompanyRecruitmentTable.count({
+        where: {
+          is_gpt_checked: {
+            [sequelize.Op.or]: [
+              null,
+              false
+            ]
+          }
+        }
+      });
+      
+      this.logger.logVerbose(`매칭되지 않은 총 채용 공고 수: ${result}개`);
+      return result;
+    } catch (error) {
+      this.logger.log(`매칭되지 않은 채용 공고 개수 조회 중 오류: ${error}`, 'error');
+      return 0;
+    }
+  }
 }

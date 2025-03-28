@@ -1,6 +1,7 @@
 import { ScraperServiceABC } from "@qillie/wheel-micro-service";
 import { ScraperFactory } from "./ScraperFactory";
 import { JobInfo, ScraperConfig } from "./types/JobTypes";
+import { JobMatchResult } from "./ai/JobMatchingService";
 import colors from 'ansi-colors';
 import path from 'path';
 import cron from 'node-cron';
@@ -22,10 +23,9 @@ export default class ScraperControlService extends ScraperServiceABC {
     verbose: false
   };
 
-  constructor() {
-    super([]);
+  constructor(signInCookieKeys: string[]) {
+    super(signInCookieKeys);
     this.factory = ScraperFactory.getInstance();
-    
     // 임시 디렉토리 확인
     this.ensureTempDirectory();
   }
@@ -82,6 +82,11 @@ export default class ScraperControlService extends ScraperServiceABC {
       const jobs = await this.openSaraminWithDuplicateCheck(config);
       
       logger.log(`스케줄된 스크래핑 완료: ${jobs.length}개 새 채용 공고 수집됨`, 'success');
+      
+      // 스크래핑 완료 후 자동 매칭 실행
+      logger.log('스케줄된 스크래핑 완료 후 자동 매칭을 시작합니다...', 'info');
+      await this.runAutoJobMatching();
+      
     } catch (error) {
       logger.log(`스케줄된 스크래핑 작업 실행 중 오류: ${error}`, 'error');
     }
@@ -232,7 +237,11 @@ export default class ScraperControlService extends ScraperServiceABC {
       };
       
       // 정상 스크래핑 프로세스 실행
-      return await this.openSaramin(customConfig);
+      const jobs = await this.openSaramin(customConfig);
+      
+      // 스크래핑 완료 후 자동 매칭 실행은 openSaramin 내에서 처리됨
+      
+      return jobs;
       
     } catch (error) {
       logger.log(`URL 중복 검사 중 오류: ${error}`, 'error');
@@ -253,14 +262,13 @@ export default class ScraperControlService extends ScraperServiceABC {
     
     // 기본값과 함께 설정 적용
     const settings = this.applyConfiguration(config);
-    const { startPage, endPage, headless, waitTime, verbose } = settings;
     
     // 상세 로깅 설정
-    this.factory.setVerboseLogging(verbose);
+    this.factory.setVerboseLogging(settings.verbose);
     
     const collectedJobs: JobInfo[] = [];
     
-    logger.log(`사람인 채용 정보 스크래핑 시작 (페이지 ${startPage}부터)`, 'info');
+    logger.log(`사람인 채용 정보 스크래핑 시작 (페이지 ${settings.startPage}부터)`, 'info');
     const startTime = Date.now();
     
     let consecutiveDuplicates = 0;
@@ -269,17 +277,17 @@ export default class ScraperControlService extends ScraperServiceABC {
   
     try {
       // 브라우저 초기화
-      const browser = await browserService.initializeBrowser(headless);
+      const browser = await browserService.initializeBrowser(settings.headless);
       const page = await browserService.createPage();
       
       let processedPages = 0;
   
       // 페이지별 처리
-      for (let i = startPage; i <= endPage && continueScrapping; i++) {
+      for (let i = settings.startPage; i <= settings.endPage && continueScrapping; i++) {
         logger.log(`페이지 ${i} 처리 중...`);
         
         // 페이지 처리
-        const result = await saraminScraper.processListPage(page, i, waitTime);
+        const result = await saraminScraper.processListPage(page, i, settings.waitTime);
         
         processedPages++;
         const pageJobs = result.jobs;
@@ -313,6 +321,12 @@ export default class ScraperControlService extends ScraperServiceABC {
       const elapsedTime = (Date.now() - startTime) / 1000;
       logger.log(`총 소요 시간: ${elapsedTime.toFixed(2)}초`, 'success');
       
+      // 스크래핑 완료 후 자동 매칭 실행
+      if (collectedJobs.length > 0) {
+        logger.log('스크래핑 완료 후 자동 매칭을 시작합니다...', 'info');
+        await this.runAutoJobMatching();
+      }
+      
       return collectedJobs;
     } catch (error) {
       logger.log(`스크래핑 중 오류 발생: ${error}`, 'error');
@@ -321,6 +335,127 @@ export default class ScraperControlService extends ScraperServiceABC {
       // 브라우저 종료
       await browserService.closeBrowser();
       logger.log(`브라우저 종료 및 스크래핑 완료`, 'success');
+    }
+  }
+
+  /**
+   * 스크래핑 후 자동으로 매칭 작업 실행
+   * 매칭되지 않은 채용 공고만 대상으로 함
+   */
+  public async runAutoJobMatching(): Promise<void> {
+    const logger = this.factory.getLogger();
+    
+    // 구분선으로 작업 시작 표시
+    logger.logSeparator();
+    logger.log('🤖 자동 채용 공고 매칭 작업을 시작합니다', 'info');
+    logger.logSeparator();
+    
+    const startTime = Date.now();
+    
+    try {
+      // 매칭 서비스 획득
+      const jobRepository = this.factory.getJobRepository();
+      
+      // MainServiceCommunicateService 인스턴스 생성
+      const mainService = new (require('../developer/MainServiceCommunicateService').default)();
+      
+      // 배치 사이즈와 처리된 작업 수 초기화
+      const batchSize = 10;
+      let processedCount = 0;
+      let totalProcessed = 0;
+      let shouldContinue = true;
+      let batchNumber = 1;
+      
+      // 매칭 전 총 처리 대상 수 확인
+      const totalUnmatched = await jobRepository.countUnmatchedJobs();
+      logger.log(`매칭이 필요한 총 채용 공고 수: ${totalUnmatched}개`, 'info');
+      
+      if (totalUnmatched === 0) {
+        logger.log('매칭되지 않은 채용 공고가 없습니다. 작업을 건너뜁니다.', 'info');
+        return;
+      }
+      
+      while (shouldContinue) {
+        // 배치 시작 로그
+        logger.log(`📋 배치 #${batchNumber} 매칭 작업 시작 (최대 ${batchSize}개)`, 'info');
+        
+        // 매칭되지 않은 채용 공고 가져오기
+        const unmatchedJobs = await jobRepository.getUnmatchedJobs(batchSize);
+        
+        if (unmatchedJobs.length === 0) {
+          logger.log('더 이상 매칭되지 않은 채용 공고가 없습니다.', 'success');
+          shouldContinue = false;
+          continue;
+        }
+        
+        // 채용 공고 ID 목록 출력
+        const jobIds = unmatchedJobs.map(job => job.id).join(', ');
+        logger.log(`처리할 채용 공고 ID: ${jobIds}`, 'info');
+        
+        // 진행 상황 표시
+        const progressPct = Math.min(100, Math.round((totalProcessed / totalUnmatched) * 100));
+        logger.log(`매칭 진행 상황: ${totalProcessed}/${totalUnmatched} (${progressPct}%)`, 'info');
+        
+        logger.log(`${unmatchedJobs.length}개의 매칭되지 않은 채용 공고 매칭 중...`, 'info');
+        
+        // 채용 공고 매칭 실행
+        const matchResult = await mainService.matchJobs({
+          limit: unmatchedJobs.length,
+          matchLimit: 10
+        });
+        
+        if (matchResult.success) {
+          processedCount = unmatchedJobs.length;
+          totalProcessed += processedCount;
+          
+          // 매칭 결과 요약
+          if (matchResult.results && matchResult.results.length > 0) {
+            logger.log(`매칭 결과: ${matchResult.results.length}개 매칭 완료`, 'success');
+            
+            // 상위 매칭 결과 로깅
+            matchResult.results.slice(0, 3).forEach((result: JobMatchResult, idx: number) => {
+              logger.log(`  ${idx+1}. ID ${result.id}: ${result.score}점 (${result.apply_yn ? '지원 권장' : '지원 비권장'})`, 
+                result.apply_yn ? 'success' : 'warning');
+            });
+          } else {
+            logger.log(`매칭은 성공했으나 결과가 없습니다.`, 'warning');
+          }
+          
+          logger.log(`📦 배치 #${batchNumber} 완료: ${processedCount}개 처리됨, 총 ${totalProcessed}/${totalUnmatched}개`, 'success');
+        } else {
+          logger.log(`매칭 실패: ${matchResult.message}`, 'error');
+          shouldContinue = false;
+        }
+        
+        // 처리량이 배치 사이즈보다 작으면 모두 처리한 것으로 간주
+        if (processedCount < batchSize) {
+          logger.log(`배치 크기(${batchSize})보다 적은 ${processedCount}개가 처리되어 모든 작업이 완료된 것으로 판단됩니다.`, 'info');
+          shouldContinue = false;
+        }
+        
+        // 다음 배치 처리 전 잠시 대기
+        if (shouldContinue) {
+          const waitSeconds = 3;
+          logger.log(`다음 배치 처리를 위해 ${waitSeconds}초 대기 중...`, 'info');
+          await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
+        }
+        
+        batchNumber++;
+      }
+      
+      const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
+      logger.logSeparator();
+      logger.log(`✅ 자동 매칭 작업 완료: 총 ${totalProcessed}개 채용 공고 처리됨 (소요 시간: ${elapsedTime}초)`, 'success');
+      logger.logSeparator();
+    } catch (error) {
+      logger.log(`❌ 자동 매칭 중 오류 발생: ${error}`, 'error');
+      
+      // 오류 세부 정보 출력
+      if (error instanceof Error && error.stack) {
+        logger.logVerbose(`오류 스택: ${error.stack}`);
+      }
+      
+      logger.logSeparator();
     }
   }
 
@@ -382,3 +517,6 @@ export default class ScraperControlService extends ScraperServiceABC {
     console.log(colors.yellow.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
   }
 }
+
+// fs 모듈 가져오기 (createReadStream 위해 필요)
+import fs from 'fs';
