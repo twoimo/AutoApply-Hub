@@ -44,6 +44,7 @@ export interface Preferences {
   company_size: string;
   industries: string[];
   location: string;
+  job_type: string; // Added this line
 }
 
 /**
