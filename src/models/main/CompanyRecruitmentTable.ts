@@ -53,14 +53,6 @@ export default class CompanyRecruitmentTable extends ModelABC {
   
   @AllowNull(true)
   @Column({
-    type: DataType.STRING,
-    comment: "채용 공고 내용 유형 (text, html 등)",
-    defaultValue: "text"
-  })
-  description_type!: string;
-  
-  @AllowNull(true)
-  @Column({
     type: DataType.TEXT,  // 긴 텍스트를 저장할 수 있는 타입 (URL은 길 수 있음)
     comment: "채용 공고 URL",
   })

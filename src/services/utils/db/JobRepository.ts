@@ -30,7 +30,6 @@ export class JobRepository {
         job_url: url,
         company_type: job.companyType || "",
         job_description: job.jobDescription || "",
-        description_type: job.descriptionType || "text",
         scraped_at: new Date(),
         is_applied: false
       });
