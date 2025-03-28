@@ -7,6 +7,12 @@ import { JobInfo } from '../types/JobTypes';
 
 dotenv.config();
 
+// Assistant와 Thread ID를 저장하기 위한 인터페이스
+interface PersistentIDs {
+  assistantId: string | null;
+  threadId: string | null;
+}
+
 /**
  * OpenAI API와 상호작용하고 Assistant 기능을 활용하는 서비스
  */
@@ -17,6 +23,7 @@ export class OpenAIAssistantService {
   private threadId: string | null = null;
   private apiKey: string;
   private readonly systemInstructions: string;
+  private readonly persistFilePath: string;
 
   constructor(apiKey: string, logger: LoggerService) {
     this.apiKey = apiKey;
@@ -27,6 +34,69 @@ export class OpenAIAssistantService {
 
     // 시스템 지시사항 로드
     this.systemInstructions = this.loadSystemInstructions();
+    
+    // ID 저장 파일 경로 설정
+    this.persistFilePath = path.join(__dirname, '../../../data', 'openai-persist.json');
+    
+    // 저장된 ID가 있으면 로드
+    this.loadPersistedIds();
+  }
+
+  /**
+   * 저장된 어시스턴트와 스레드 ID 로드
+   */
+  private loadPersistedIds(): void {
+    try {
+      // data 디렉토리가 없으면 생성
+      const dataDir = path.dirname(this.persistFilePath);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+
+      // 파일이 존재하는지 확인
+      if (fs.existsSync(this.persistFilePath)) {
+        const data = fs.readFileSync(this.persistFilePath, 'utf8');
+        const persistedIds: PersistentIDs = JSON.parse(data);
+        
+        this.assistantId = persistedIds.assistantId;
+        this.threadId = persistedIds.threadId;
+        
+        if (this.assistantId) {
+          this.logger.log(`저장된 어시스턴트 ID 로드: ${this.assistantId}`, 'info');
+        }
+        if (this.threadId) {
+          this.logger.log(`저장된 스레드 ID 로드: ${this.threadId}`, 'info');
+        }
+      }
+    } catch (error) {
+      this.logger.log(`저장된 ID 로드 실패: ${error}`, 'error');
+      // 로드 실패 시 null 값 유지
+      this.assistantId = null;
+      this.threadId = null;
+    }
+  }
+
+  /**
+   * 어시스턴트와 스레드 ID 저장
+   */
+  private savePersistedIds(): void {
+    try {
+      const persistedIds: PersistentIDs = {
+        assistantId: this.assistantId,
+        threadId: this.threadId
+      };
+      
+      // data 디렉토리가 없으면 생성
+      const dataDir = path.dirname(this.persistFilePath);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      
+      fs.writeFileSync(this.persistFilePath, JSON.stringify(persistedIds, null, 2));
+      this.logger.log('어시스턴트와 스레드 ID 저장 완료', 'success');
+    } catch (error) {
+      this.logger.log(`ID 저장 실패: ${error}`, 'error');
+    }
   }
 
   /**
@@ -170,6 +240,7 @@ export class OpenAIAssistantService {
       
       if (assistantId) {
         this.assistantId = assistantId;
+        this.savePersistedIds(); // ID 저장
         this.logger.log(`기존 어시스턴트 사용: ${this.assistantId}`, 'info');
         return this.assistantId;
       }
@@ -183,6 +254,7 @@ export class OpenAIAssistantService {
         tools: [{ type: "file_search" }] // "retrieval" 대신 "file_search" 사용
       });
       this.assistantId = assistant.id;
+      this.savePersistedIds(); // ID 저장
       this.logger.log(`어시스턴트 생성 완료: ${this.assistantId}`, 'success');
       return this.assistantId;
     } catch (error) {
@@ -205,6 +277,7 @@ export class OpenAIAssistantService {
       // 새 스레드 생성
       const thread = await this.openai.beta.threads.create();
       this.threadId = thread.id;
+      this.savePersistedIds(); // ID 저장
       this.logger.log(`스레드 생성 완료: ${this.threadId}`, 'success');
       return this.threadId;
     } catch (error) {

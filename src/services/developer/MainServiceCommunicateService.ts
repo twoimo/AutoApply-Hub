@@ -45,7 +45,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   private jobRepository: JobRepository;
   
   // OpenAI API 키 및 어시스턴트 ID
-  private readonly openaiApiKey: string = process.env.OPENAI_API_KEY ?? "";
+  private readonly openaiApiKey: string = process.env.OPENAI_API_KEY_FIX ?? "";
   private readonly assistantId: string = process.env.OPENAI_ASSISTANT_ID ?? "";
 
   constructor() {
