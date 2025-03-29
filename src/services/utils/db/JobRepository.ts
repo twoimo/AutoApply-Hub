@@ -185,9 +185,6 @@ export class JobRepository {
       const jobs = await CompanyRecruitmentTable.findAll({
         where: {
           is_gpt_checked: true,
-          match_score: {
-            [sequelize.Op.gte]: 69 // 69점 이상인 채용공고만
-          },
           is_recommended: true
         },
         order: [['match_score', 'DESC']],
