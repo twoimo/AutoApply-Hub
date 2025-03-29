@@ -89,8 +89,8 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    */
   public async run({}: {}) {
     // 스크래퍼 컨트롤 서비스의 메소드 호출
-    // return await this.scraperControlService.scheduleWeekdayScraping();
-    return await this.scraperControlService.runAutoJobMatching();
+    return await this.scraperControlService.scheduleWeekdayScraping();
+    // return await this.scraperControlService.runAutoJobMatching();
   }
   
   /**
