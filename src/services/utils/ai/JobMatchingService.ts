@@ -102,31 +102,6 @@ export class JobMatchingService {
   }
 
   /**
-   * Vector Store를 활용한 채용공고 매칭 대체 구현
-   * (간소화된 버전으로 일반 검색 수행)
-   */
-  public async matchJobsWithVectorStore(
-    jobs: JobInfo[], 
-    limit: number = JobMatchingConstants.DEFAULT_MATCH_LIMIT
-  ): Promise<JobMatchResult[]> {
-    try {
-      await this.ensureInitialized();
-      
-      // 구직자 프로필을 기반으로 검색 쿼리 생성
-      const profileText = formatCandidateProfile(this.candidateProfile);
-      const searchQuery = this.createSearchQueryFromProfile(profileText);
-      
-      // 검색 수행 (실제 벡터 검색 대신 모든 채용공고를 Mistral에게 전달)
-      const searchResults = await this.mistralService.searchJobsWithQuery(searchQuery, jobs);
-      
-      // 검색 결과 처리 및 반환
-      return this.processMatchResults(searchResults, limit);
-    } catch (error) {
-      this.handleError('채용공고 검색 중 오류', error);
-    }
-  }
-
-  /**
    * 구직자 프로필을 기반으로 검색 쿼리 생성
    */
   private createSearchQueryFromProfile(profileText: string): string {
@@ -229,6 +204,83 @@ export class JobMatchingService {
       this.logger.log(`${results.length}개 매칭 결과 저장 완료`, 'success');
     } catch (error) {
       this.handleError('매칭 결과 저장 실패', error);
+    }
+  }
+
+  /**
+   * 채용공고 매칭 실행
+   */
+  public async executeJobMatching(
+    limit: number,
+    matchLimit: number
+  ): Promise<{
+    success: boolean;
+    results?: JobMatchResult[];
+    message?: string;
+  }> {
+    try {
+      // 매칭되지 않은 채용공고 수 확인
+      const unmatchedCount = await this.jobRepository.countUnmatchedJobs();
+      
+      this.logger.log(`채용공고 매칭 시작 (총 ${unmatchedCount}개 중 최대 ${limit}개 처리, 상위 ${matchLimit}개 결과 반환)`, 'info');
+      
+      // 매칭 실행
+      const results = await this.matchJobsFromDb(limit, matchLimit);
+      
+      // 결과 저장
+      if (results.length > 0) {
+        await this.saveMatchResults(results);
+        this.logger.log(`총 ${results.length}개의 매칭 결과가 저장되었습니다.`, 'success');
+      } else {
+        this.logger.log('매칭 결과가 없습니다.', 'warning');
+      }
+      
+      return {
+        success: true,
+        results,
+        message: `${results.length}개 채용공고 매칭 완료`
+      };
+    } catch (error) {
+      this.logger.log(`채용공고 매칭 중 오류가 발생했습니다: ${error}`, 'error');
+      return {
+        success: false,
+        message: `채용공고 매칭 중 오류가 발생했습니다: ${error}`
+      };
+    }
+  }
+
+  /**
+   * 추천 채용공고 조회
+   */
+  public async getRecommendedJobs(limit: number): Promise<{
+    success: boolean;
+    results?: JobMatchResult[];
+    message?: string;
+  }> {
+    try {
+      // 추천 채용공고 가져오기 (점수 70점 이상, 지원 권장된 공고)
+      const recommendedJobs = await this.jobRepository.getRecommendedJobs(limit);
+      
+      if (recommendedJobs.length === 0) {
+        return {
+          success: true,
+          results: [],
+          message: '추천 채용공고가 없습니다. 먼저 매칭을 실행해주세요.'
+        };
+      }
+      
+      this.logger.log(`${recommendedJobs.length}개의 추천 채용공고를 찾았습니다.`, 'success');
+      
+      return {
+        success: true,
+        results: recommendedJobs
+      };
+    } catch (error) {
+      this.logger.log(`추천 채용공고를 가져오는 중 오류가 발생했습니다: ${error}`, 'error');
+      return {
+        success: false,
+        message: `추천 채용공고를 가져오는 중 오류가 발생했습니다: ${error}`
+      };
     }
   }
 }

@@ -5,8 +5,9 @@ import { JobInfo } from '../types/JobTypes';
 import { FileHelper } from '../helpers/FileHelper';
 import { PathConstants, MistralAIConstants } from '../constants/AppConstants';
 import { getSystemInstructions } from './SystemInstructions';
+import fs from 'fs';
 
-// 기존 OpenAI 상수 대체
+// OpenAI 상수 정의
 const OpenAIConstants = {
   ASSISTANT: {
     MODEL: 'gpt-4o',
@@ -131,7 +132,7 @@ export class OpenAIAssistantService {
       
       if (assistantId) {
         this.assistantId = assistantId;
-        this.savePersistedIds(); // ID 저장
+        this.savePersistedIds(); 
         this.logger.log(`기존 어시스턴트 사용: ${this.assistantId}`, 'info');
         return this.assistantId;
       }
@@ -142,11 +143,11 @@ export class OpenAIAssistantService {
         description: OpenAIConstants.ASSISTANT.DESCRIPTION,
         model: OpenAIConstants.ASSISTANT.MODEL,
         instructions: this.systemInstructions,
-        tools: OpenAIConstants.ASSISTANT.TOOLS as any // 타입 캐스팅으로 임시 해결
+        tools: OpenAIConstants.ASSISTANT.TOOLS as any
       });
       
       this.assistantId = assistant.id;
-      this.savePersistedIds(); // ID 저장
+      this.savePersistedIds();
       this.logger.log(`어시스턴트 생성 완료: ${this.assistantId}`, 'success');
       return this.assistantId;
     } catch (error) {
@@ -169,7 +170,7 @@ export class OpenAIAssistantService {
       // 새 스레드 생성
       const thread = await this.openai.beta.threads.create();
       this.threadId = thread.id;
-      this.savePersistedIds(); // ID 저장
+      this.savePersistedIds();
       this.logger.log(`스레드 생성 완료: ${this.threadId}`, 'success');
       return this.threadId;
     } catch (error) {
@@ -269,7 +270,7 @@ export class OpenAIAssistantService {
         if (this.assistantId) {
           await this.openai.beta.assistants.update(
             this.assistantId,
-            { tools: OpenAIConstants.ASSISTANT.TOOLS as any } // 타입 캐스팅으로 임시 해결
+            { tools: OpenAIConstants.ASSISTANT.TOOLS as any }
           );
           this.logger.log(`파일 업로드 완료 (ID: ${file.id}), 어시스턴트 업데이트 완료`, 'success');
         }
@@ -444,6 +445,3 @@ export class OpenAIAssistantService {
     throw error instanceof Error ? error : new Error(`${message}: ${error}`);
   }
 }
-
-// fs 모듈 가져오기 (createReadStream 위해 필요)
-import fs from 'fs';
