@@ -783,7 +783,6 @@ export default class ScraperControlService extends ScraperServiceABC {
           logger.log('입사지원 버튼 로딩 대기 중... (3초)', 'info');
           await new Promise(resolve => setTimeout(resolve, 3000)); // 버튼이 완전히 로드될 때까지 3초 대기
           
-          logger.log('입사지원 버튼 클릭...', 'info');
           await page.click(applyButtonInfo.selector);
           
           // 10. 입사지원서 모달이 뜰 때까지 대기
