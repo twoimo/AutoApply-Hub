@@ -568,16 +568,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       const loginButton = await browserService.evaluate<string>(page, () => {
         // 가능한 로그인 버튼 선택자들
         const possibleSelectors = [
-          '#loginForm button[type="submit"]',
-          '.login-form button[type="submit"]',
-          'button.btn_login',
-          'button.login_btn',
-          '#loginForm input[type="submit"]',
-          'form[name="loginForm"] button',
-          'button:contains("로그인")',
-          '#login_btn',
-          '.btn-login',
-          '#loginForm > fieldset > div > button'
+          '.login-form button[type="submit"]'
         ];
         
         // 각 선택자에 대해 요소가 존재하는지 확인
