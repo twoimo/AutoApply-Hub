@@ -652,9 +652,6 @@ export default class ScraperControlService extends ScraperServiceABC {
       const cookies = await page.cookies();
       const cookieStrings = cookies.map(cookie => `${cookie.name}=${cookie.value}`);
       
-      // 필요한 쿠키 저장 (signInCookieKeys에 정의된 쿠키들)
-      const savedSignInCookies = this.saveSignInCookies(cookies);
-      
       logger.log('로그인 성공! 사람인 계정으로 인증되었습니다.', 'success', true);
       logger.logSeparator();
       
@@ -672,47 +669,6 @@ export default class ScraperControlService extends ScraperServiceABC {
       // 브라우저는 종료하지 않고 유지 (로그인 상태를 계속 사용할 수 있도록)
       // 필요한 경우 별도로 closeBrowser를 호출하여 종료
     }
-  }
-
-  /**
-   * 로그인 쿠키 저장
-   * @param cookies 쿠키 배열
-   * @returns 저장된 쿠키 수
-   */
-  private saveSignInCookies(cookies: Array<{ name: string, value: string }>): number {
-    const logger = this.factory.getLogger();
-    let savedCount = 0;
-    
-    // signInCookieKeys에 정의된 쿠키만 저장
-    for (const cookie of cookies) {
-      if (this.signInCookieKeys.includes(cookie.name)) {
-        this.addSignInCookie(cookie.name, cookie.value); // 부모 클래스의 올바른 메서드 사용
-        savedCount++;
-        logger.logVerbose(`쿠키 저장됨: ${cookie.name}`);
-      }
-    }
-    
-    if (savedCount > 0) {
-      logger.log(`${savedCount}개의 인증 쿠키가 저장되었습니다`, 'info');
-    }
-    
-    return savedCount;
-  }
-
-  /**
-   * 부모 클래스에 없는 메서드를 구현
-   * 이 메서드는 쿠키를 저장하는 역할을 합니다
-   */
-  private addSignInCookie(name: string, value: string): void {
-    // 부모 클래스의 쿠키 관리 방식을 활용
-    // 쿠키를 직접 저장하는 대신 부모 클래스에서 제공하는 기능 사용
-    
-    // 쿠키 객체 생성
-    const cookie = { name, value };
-    
-    // 부모 클래스가 쿠키 설정을 위해 제공하는 방식 사용
-    // 클래스 내에 직접 쿠키를 저장하는 대신 부모 클래스의 메서드 사용
-    (this as any)[`__cookie__${name}`] = value;
   }
 
   /**
