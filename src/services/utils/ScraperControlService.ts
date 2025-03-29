@@ -940,11 +940,25 @@ export default class ScraperControlService extends ScraperServiceABC {
           if (isSuccess) {
             // 18. 지원 성공 시 DB 업데이트
             logger.log(`${companyName} - ${jobTitle} 지원 성공!`, 'success');
-            job.is_applied = true;
-            await job.save();
-            
-            appliedCount++;
-            details.push(`[성공] ${companyName} - ${jobTitle}`);
+            try {
+              job.is_applied = true;
+              await job.save();
+              logger.log(`DB 업데이트 성공: ${companyName} - ${jobTitle}`, 'success');
+              
+              // 직접 업데이트 쿼리 추가 (대체 방법)
+              await CompanyRecruitmentTable.update(
+                { is_applied: true },
+                { where: { id: job.id } }
+              );
+              
+              appliedCount++;
+              details.push(`[성공] ${companyName} - ${jobTitle}`);
+            } catch (dbError) {
+              logger.log(`DB 업데이트 실패: ${dbError}`, 'error');
+              // DB 업데이트 실패해도 UI에는 성공으로 표시
+              appliedCount++;
+              details.push(`[성공-DB오류] ${companyName} - ${jobTitle}`);
+            }
           } else {
             logger.log(`${companyName} - ${jobTitle} 지원 실패. 성공 메시지를 찾을 수 없습니다.`, 'warning');
             failedCount++;
