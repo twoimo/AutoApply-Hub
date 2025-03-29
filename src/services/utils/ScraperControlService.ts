@@ -760,25 +760,40 @@ export default class ScraperControlService extends ScraperServiceABC {
             continue;
           }
           
-          // 6. 입사지원 버튼 찾기
-          const applyButtonInfo = await browserService.evaluate<{selector: string, text: string} | null>(page, () => {
-            const btnElements = Array.from(document.querySelectorAll('.btn_apply, .btn_apply_button, .sri_btn_lg, .sri_btn_md'));
-            const applyBtn = btnElements.find(btn => {
-              const text = btn.textContent?.trim();
-              return text === '입사지원' || text === '홈페이지 지원';
+            // 6. 입사지원 버튼 찾기
+            const applyButtonInfo = await browserService.evaluate<{selector: string, text: string} | null>(page, () => {
+              // 먼저, 페이지에 jview 요소가 있는지 확인
+              const jviewElements = Array.from(document.querySelectorAll('[class^="jview jview-0-"]'));
+              
+              // jview 요소가 존재하면 그 안에서 먼저 버튼을 찾음
+              if (jviewElements.length > 0) {
+                for (const jviewElement of jviewElements) {
+                  const btnElements = Array.from(jviewElement.querySelectorAll('button, a.btn'));
+                  const applyBtn = btnElements.find(btn => {
+                    const text = btn.textContent?.trim();
+                    return text === '입사지원' || text === '홈페이지 지원';
+                  });
+                  
+                  if (applyBtn) {
+                    // jview 요소 내부에서 버튼을 찾음
+                    applyBtn.setAttribute('data-apply-button', 'true');
+                    return {
+                      selector: '[data-apply-button="true"]',
+                      text: applyBtn.textContent?.trim() || ''
+                    };
+                  }
+                }
+              }
+              
+              // jview 요소에서 찾지 못한 경우 원래 방식으로 찾기
+              const btnElements = Array.from(document.querySelectorAll('.btn_apply, .btn_apply_button, .sri_btn_lg, .sri_btn_md'));
+              const applyBtn = btnElements.find(btn => {
+                const text = btn.textContent?.trim();
+                return text === '입사지원' || text === '홈페이지 지원';
+              });
+              
+              return null;
             });
-            
-            if (applyBtn) {
-              // 발견된 버튼에 식별자 추가
-              applyBtn.setAttribute('data-apply-button', 'true');
-              return {
-                selector: '[data-apply-button="true"]',
-                text: applyBtn.textContent?.trim() || ''
-              };
-            }
-            
-            return null;
-          });
           
           if (!applyButtonInfo) {
             logger.log('입사지원 버튼을 찾을 수 없습니다. 다음 공고로 넘어갑니다.', 'warning');
@@ -795,40 +810,46 @@ export default class ScraperControlService extends ScraperServiceABC {
             continue;
           }
           
-          // 9. 지원하기 버튼 클릭
-          logger.log('지원하기 버튼 클릭...', 'info');
+          // 9. 입사지원 버튼 클릭 전 로딩 대기
+          logger.log('입사지원 버튼 로딩 대기 중... (3초)', 'info');
+          await new Promise(resolve => setTimeout(resolve, 3000)); // 버튼이 완전히 로드될 때까지 3초 대기
+            
+          logger.log('입사지원 버튼 클릭...', 'info');
           await page.click(applyButtonInfo.selector);
           
           // 10. 입사지원서 모달이 뜰 때까지 대기
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          await new Promise(resolve => setTimeout(resolve, 10000));
           
           // 11. iframe URL 추출
           const iframeUrl = await browserService.evaluate<string>(page, () => {
-            const iframe = document.querySelector('#quick_apply_layer_frame');
-            return iframe ? iframe.getAttribute('src') || '' : '';
+          const iframe = document.querySelector('#quick_apply_layer_frame');
+          return iframe && iframe.getAttribute('src') || '';
           });
           
           if (!iframeUrl) {
-            logger.log('입사지원 iframe을 찾을 수 없습니다.', 'warning');
-            failedCount++;
-            details.push(`[실패] ${companyName} - ${jobTitle}: 지원 iframe 없음`);
-            continue;
+          logger.log('입사지원 iframe을 찾을 수 없습니다.', 'warning');
+          failedCount++;
+          details.push(`[실패] ${companyName} - ${jobTitle}: 지원 iframe 없음`);
+          continue;
           }
           
           // 12. iframe URL 검증 - 채용 공고 URL과 iframe URL 간의 호환성 확인
           const isValidIframeUrl = await browserService.evaluate<boolean>(page, (iframeUrl, jobUrl) => {
-            // 기본 검증: iframe URL이 사람인 도메인에 속하는지 확인
-            const isSaraminDomain = iframeUrl.includes('saramin.co.kr');
+            // 기본 검증: iframe URL이 사람인 도메인이거나 상대 URL인지 확인
+            const isSaraminDomain = iframeUrl.includes('saramin.co.kr') || iframeUrl.startsWith('/');
             
-            // jobUrl에서 공고 ID 추출 (예: /recruit/view?id=12345 -> 12345)
-            const jobIdMatch = jobUrl.match(/[?&]id=(\d+)/);
-            const jobId = jobIdMatch ? jobIdMatch[1] : null;
+            // 지원 관련 URL인지 확인 (다양한 패턴 검사)
+            const isApplyRelated = 
+              iframeUrl.includes('apply_form') || 
+              iframeUrl.includes('member/apply') || 
+              iframeUrl.includes('rec_idx=');
             
-            // iframe URL에도 같은 ID가 있는지 확인
-            const iframeHasMatchingId = jobId ? iframeUrl.includes(jobId) : false;
+            // 기존 방식과 함께 rec_idx 파라미터도 확인
+            const recIdxMatch = iframeUrl.match(/rec_idx=(\d+)/);
+            const hasRecIdx = recIdxMatch !== null;
             
-            // 둘 다 true이면 유효한 URL
-            return isSaraminDomain && (iframeHasMatchingId || iframeUrl.includes('apply_form'));
+            // 유효한 지원 URL로 판단
+            return isSaraminDomain && (isApplyRelated || hasRecIdx);
           }, iframeUrl, jobUrl);
           
           if (!isValidIframeUrl) {
@@ -897,20 +918,27 @@ export default class ScraperControlService extends ScraperServiceABC {
             continue;
           }
           
-          // 15. 모달 내 지원하기 버튼 클릭
-          logger.log('입사지원 모달 내 지원하기 버튼 클릭...', 'info');
-          await page.click(modalApplyButton);
-          
-          // 16. 지원 완료 대기 - 더 긴 시간으로 변경 (3초 → 8초)
-          logger.log('지원 완료 페이지 로딩 대기 중... (8초)', 'info');
-          await new Promise(resolve => setTimeout(resolve, 8000));
-          
-          // 17. 지원 성공 여부 확인 (성공 메시지나 완료 페이지 확인)
-          const isSuccess = await browserService.evaluate<boolean>(page, () => {
-            // 성공 메시지 또는 완료 페이지 요소 확인
-            const successElements = document.querySelectorAll('.complete_txt, .tit_complete, .text_finished');
-            return successElements.length > 0;
-          });
+          // 15-17. 모달 내 지원하기 버튼 클릭 및 완료 확인
+          let isSuccess = false;
+          try {
+            // 15. 모달 내 지원하기 버튼 클릭
+            logger.log('입사지원 모달 내 지원하기 버튼 클릭...', 'info');
+            await page.click(modalApplyButton);
+            
+            // 16. 지원 완료 대기 - 더 긴 시간으로 변경 (15초)
+            logger.log('지원 완료 페이지 로딩 대기 중... (15초)', 'info');
+            await new Promise(resolve => setTimeout(resolve, 15000));
+            
+            // 17. 지원 성공 여부 확인 (성공 메시지나 완료 페이지 확인)
+            isSuccess = await browserService.evaluate<boolean>(page, () => {
+              // 성공 메시지 또는 완료 페이지 요소 확인
+              const successElements = document.querySelectorAll('.complete_txt, .tit_complete, .text_finished');
+              return successElements.length > 0;
+            }) ?? false;
+          } catch (error) {
+            logger.log(`지원 과정 중 오류 발생: ${error}`, 'error');
+            isSuccess = false;
+          }
           
           if (isSuccess) {
             // 18. 지원 성공 시 DB 업데이트
