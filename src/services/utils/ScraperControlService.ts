@@ -5,6 +5,11 @@ import { JobMatchResult } from "./ai/JobMatchingService";
 import colors from 'ansi-colors';
 import path from 'path';
 import cron from 'node-cron';
+import puppeteer from 'puppeteer'; // Add puppeteer import for Cookie types
+import dotenv from 'dotenv';
+
+// .env 파일 로드
+dotenv.config();
 
 /**
  * 스크래퍼 컨트롤 서비스 
@@ -343,7 +348,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         // 로깅 개선: 진행 상황 표시
         if (i < settings.endPage && continueScrapping) {
           logger.log(`다음 페이지로 이동 중...`, 'info');
-          await new Promise(resolve => setTimeout(resolve, 1000)); // 짧은 대기로 로그가 터미널에 표시될 시간 확보
+          await new Promise(resolve => setTimeout(resolve, 1000)); // 짧은 대기기로 로그가 터미널에 표시될 시간 확보
         }
       }
       
@@ -371,7 +376,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       return collectedJobs;
     } catch (error) {
-      // 로깅 개선: 오류 메시지 더 명확하게 표시
+      // 로깱 개선: 오류 메시지 더 명확하게 표시
       logger.logSeparator();
       logger.log(`스크래핑 중 오류 발생: ${error}`, 'error', true);
       logger.logSeparator();
@@ -489,6 +494,225 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       logger.logSeparator();
     }
+  }
+
+  /**
+   * 사람인 채용 사이트 로그인
+   * @param username 사용자 아이디 (기본값: 환경변수에서 가져옴)
+   * @param password 사용자 비밀번호 (기본값: 환경변수에서 가져옴)
+   * @returns 로그인 성공 여부와 쿠키 정보를 포함한 객체
+   */
+  public async loginSaramin(
+    username: string = process.env.SARAMIN_USER_NAME || '', 
+    password: string = process.env.SARAMIN_PASSWORD || ''
+  ): Promise<{ success: boolean; message: string; cookies?: string[] }> {
+    const logger = this.factory.getLogger();
+    const browserService = this.factory.getBrowserService();
+    
+    logger.logSeparator();
+    logger.log('사람인 로그인 시도 중...', 'info', true);
+    
+    // 환경 변수 확인
+    if (!username || !password) {
+      logger.log('사용자 이름 또는 비밀번호가 제공되지 않았습니다. 환경 변수 SARAMIN_USER_NAME, SARAMIN_PASSWORD를 확인하세요.', 'error');
+      return { success: false, message: '로그인 정보가 없습니다. 환경 변수를 확인하세요.' };
+    }
+    
+    try {
+      // 브라우저 초기화 (headless 모드 끄기)
+      const browser = await browserService.initializeBrowser(false);
+      const page = await browserService.createPage();
+      
+      // 로그인 페이지로 이동
+      const loginUrl = "https://www.saramin.co.kr/zf_user/auth";
+      logger.log(`로그인 페이지 로드 중: ${loginUrl}`, 'info');
+      
+      const loadSuccess = await browserService.loadPageWithRetry(page, loginUrl, {
+        waitForSelector: "#id",
+        waitTime: 2000
+      });
+      
+      if (!loadSuccess) {
+        logger.log('로그인 페이지 로드 실패', 'error');
+        return { success: false, message: '로그인 페이지 로드 실패' };
+      }
+      
+      // 로그인 폼 구조 분석 (디버깅 용도)
+      const formStructure = await page.evaluate(() => {
+        const loginForm = document.querySelector('#loginForm') || document.querySelector('form[name="loginForm"]');
+        if (!loginForm) return '로그인 폼을 찾을 수 없음';
+        
+        return loginForm.innerHTML;
+      });
+      
+      logger.logVerbose('로그인 폼 구조 분석:\n' + formStructure);
+      
+      // 로그인 입력 필드 확인
+      const hasLoginForm = await browserService.evaluate<boolean>(page, () => {
+        return document.querySelector('#id') !== null && document.querySelector('#password') !== null;
+      });
+      
+      if (!hasLoginForm) {
+        logger.log('로그인 폼을 찾을 수 없습니다', 'error');
+        return { success: false, message: '로그인 폼을 찾을 수 없습니다' };
+      }
+      
+      // 아이디와 비밀번호 입력
+      logger.log('아이디 입력 중...', 'info');
+      await page.type('#id', username);
+      
+      logger.log('비밀번호 입력 중...', 'info');
+      await page.type('#password', password);
+      
+      // 로그인 버튼 찾기 (여러 선택자 시도)
+      const loginButton = await browserService.evaluate<string>(page, () => {
+        // 가능한 로그인 버튼 선택자들
+        const possibleSelectors = [
+          '#loginForm button[type="submit"]',
+          '.login-form button[type="submit"]',
+          'button.btn_login',
+          'button.login_btn',
+          '#loginForm input[type="submit"]',
+          'form[name="loginForm"] button',
+          'button:contains("로그인")',
+          '#login_btn',
+          '.btn-login',
+          '#loginForm > fieldset > div > button'
+        ];
+        
+        // 각 선택자에 대해 요소가 존재하는지 확인
+        for (const selector of possibleSelectors) {
+          try {
+            const element = document.querySelector(selector);
+            if (element) {
+              return selector; // 발견된 선택자 반환
+            }
+          } catch (e) {
+            // 선택자 오류 무시하고 계속 진행
+          }
+        }
+        
+        // 모든 버튼 요소 찾기
+        const allButtons = Array.from(document.querySelectorAll('button'));
+        const loginBtnIdx = allButtons.findIndex(btn => 
+          btn.innerText.includes('로그인') || 
+          btn.innerText.includes('Login') || 
+          btn.className.includes('login')
+        );
+        
+        if (loginBtnIdx >= 0) {
+          // 발견된 버튼에 식별자 추가
+          const foundBtn = allButtons[loginBtnIdx];
+          foundBtn.setAttribute('data-login-button', 'true');
+          return '[data-login-button="true"]';
+        }
+        
+        return ''; // 버튼을 찾지 못함
+      });
+      
+      if (!loginButton) {
+        // 버튼을 찾지 못한 경우 전체 페이지 스크린샷 캡처 (디버깅 용도)
+        const screenshotPath = path.join(process.cwd(), 'temp', 'login-page-debug.png');
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        logger.log(`로그인 버튼을 찾을 수 없습니다. 스크린샷이 저장됨: ${screenshotPath}`, 'error');
+        return { success: false, message: '로그인 버튼을 찾을 수 없습니다' };
+      }
+      
+      logger.log(`로그인 버튼 발견: ${loginButton}`, 'info');
+      
+      // 로그인 버튼 클릭
+      logger.log('로그인 시도 중...', 'info');
+      await Promise.all([
+        page.click(loginButton),
+        page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {
+          logger.log('로그인 후 페이지 로드 대기 중 시간 초과', 'warning');
+        })
+      ]);
+      
+      // 로그인 성공 여부 확인
+      const isLoggedIn = await browserService.evaluate<boolean>(page, () => {
+        // 로그인 성공 시 보이는 요소들 확인
+        return document.querySelector('.my_login') !== null || 
+               document.querySelector('.btn_logout') !== null ||
+               document.querySelector('.user_name') !== null;
+      });
+      
+      if (!isLoggedIn) {
+        // 오류 메시지 확인
+        const errorMessage = await browserService.evaluate<string>(page, () => {
+          const errorElement = document.querySelector('.error_message, .txt_error');
+          return errorElement ? errorElement.textContent?.trim() || '알 수 없는 오류' : '로그인 실패';
+        });
+        
+        logger.log(`로그인 실패: ${errorMessage}`, 'error');
+        return { success: false, message: errorMessage || '로그인 실패' };
+      }
+      
+      // 쿠키 추출
+      const cookies = await page.cookies();
+      const cookieStrings = cookies.map(cookie => `${cookie.name}=${cookie.value}`);
+      
+      // 필요한 쿠키 저장 (signInCookieKeys에 정의된 쿠키들)
+      const savedSignInCookies = this.saveSignInCookies(cookies);
+      
+      logger.log('로그인 성공! 사람인 계정으로 인증되었습니다.', 'success', true);
+      logger.logSeparator();
+      
+      return { 
+        success: true, 
+        message: '로그인 성공', 
+        cookies: cookieStrings 
+      };
+      
+    } catch (error) {
+      logger.log(`로그인 중 오류 발생: ${error}`, 'error');
+      logger.logSeparator();
+      return { success: false, message: `로그인 중 오류: ${error}` };
+    } finally {
+      // 브라우저는 종료하지 않고 유지 (로그인 상태를 계속 사용할 수 있도록)
+      // 필요한 경우 별도로 closeBrowser를 호출하여 종료
+    }
+  }
+
+  /**
+   * 로그인 쿠키 저장
+   * @param cookies 쿠키 배열
+   * @returns 저장된 쿠키 수
+   */
+  private saveSignInCookies(cookies: Array<{ name: string, value: string }>): number {
+    const logger = this.factory.getLogger();
+    let savedCount = 0;
+    
+    // signInCookieKeys에 정의된 쿠키만 저장
+    for (const cookie of cookies) {
+      if (this.signInCookieKeys.includes(cookie.name)) {
+        this.addSignInCookie(cookie.name, cookie.value); // 부모 클래스의 올바른 메서드 사용
+        savedCount++;
+        logger.logVerbose(`쿠키 저장됨: ${cookie.name}`);
+      }
+    }
+    
+    if (savedCount > 0) {
+      logger.log(`${savedCount}개의 인증 쿠키가 저장되었습니다`, 'info');
+    }
+    
+    return savedCount;
+  }
+
+  /**
+   * 부모 클래스에 없는 메서드를 구현
+   * 이 메서드는 쿠키를 저장하는 역할을 합니다
+   */
+  private addSignInCookie(name: string, value: string): void {
+    // 부모 클래스의 쿠키 관리 방식을 활용
+    // 쿠키를 직접 저장하는 대신 부모 클래스에서 제공하는 기능 사용
+    
+    // 쿠키 객체 생성
+    const cookie = { name, value };
+    
+    // 부모 클래스가 쿠키 설정을 위해 제공하는 방식 사용
+    // 클래스 내에 직접 쿠키를 저장하는 대신 부모 클래스의 메서드 사용
+    (this as any)[`__cookie__${name}`] = value;
   }
 
   /**
