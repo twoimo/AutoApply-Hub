@@ -795,14 +795,6 @@ export default class ScraperControlService extends ScraperServiceABC {
             continue;
           }
           
-          // 8. 지원하기 버튼이 "입사지원" 또는 "지원하기" 텍스트를 포함하는지 확인
-          if (applyButtonInfo.text !== '입사지원') {
-            logger.log(`지원 버튼 텍스트 불일치: "${applyButtonInfo.text}". 다음 공고로 넘어갑니다.`, 'warning');
-            failedCount++;
-            details.push(`[실패] ${companyName} - ${jobTitle}: 지원 버튼 텍스트 불일치 "${applyButtonInfo.text}"`);
-            continue;
-          }
-          
           // 9. 지원하기 버튼 클릭
           logger.log('지원하기 버튼 클릭...', 'info');
           await page.click(applyButtonInfo.selector);
