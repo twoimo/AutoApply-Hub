@@ -760,70 +760,24 @@ export default class ScraperControlService extends ScraperServiceABC {
             continue;
           }
           
-          // 6. 입사지원 버튼 찾기 - 개선된 버전
+          // 6. 입사지원 버튼 찾기
           const applyButtonInfo = await browserService.evaluate<{selector: string, text: string} | null>(page, () => {
-            // 다양한 버튼 선택자 - 더 많은 케이스 추가
-            const possibleSelectors = [
-              '.btn_apply', '.btn_apply_button', '.sri_btn_lg', '.sri_btn_md', 
-              '.btn_jview', '.for_btn_event', '.sri_btn_xs', '.sri_btn_immediately',
-              '.btn_apply', '.btnApply', 'button[title*="지원"]', 'a[title*="지원"]',
-              '.sri_btn_homepage_apply', '.btn_homepage'
-            ].join(',');
+            const btnElements = Array.from(document.querySelectorAll('.btn_apply, .btn_apply_button, .sri_btn_lg, .sri_btn_md'));
+            const applyBtn = btnElements.find(btn => {
+              const text = btn.textContent?.trim();
+              return text === '입사지원' || text === '홈페이지 지원';
+            });
             
-            // 1단계: 직접 버튼 찾기
-            const btnElements = Array.from(document.querySelectorAll(possibleSelectors));
-            
-            // 버튼의 텍스트 찾기 - 자식 요소도 확인하는 함수
-            const getButtonText = (element: Element): string => {
-              // 직접 텍스트 확인
-              const directText = element.textContent?.trim() || '';
-              if (directText) return directText;
-              
-              // title 속성 확인
-              const titleText = element.getAttribute('title') || '';
-              if (titleText) return titleText;
-              
-              return '';
-            };
-            
-            // 버튼 찾기 함수
-            const findApplyButton = (elements: Element[]): {selector: string, text: string} | null => {
-              // 버튼 텍스트 키워드
-              const applyKeywords = ['입사지원', '홈페이지 지원'];
-              
-              for (const btn of elements) {
-                const btnText = getButtonText(btn);
-                // span 요소 내부 텍스트도 확인
-                const spanText = btn.querySelector('span')?.textContent?.trim() || '';
-                const fullText = btnText || spanText;
-                
-                // 키워드와 일치하는지 확인
-                const isApplyButton = applyKeywords.some(keyword => 
-                  fullText.includes(keyword) || btn.className.includes('apply') || btn.className.includes('지원')
-                );
-                
-                if (isApplyButton) {
-                  btn.setAttribute('data-apply-button', 'true');
-                  return {
-                    selector: '[data-apply-button="true"]',
-                    text: fullText || '입사지원' // 텍스트가 없을 경우 기본값
-                  };
-                }
-              }
-              return null;
-            };
-            
-            let result = findApplyButton(btnElements);
-            
-            // 2. 버튼 컨테이너에서 찾기
-            const buttonContainers = Array.from(document.querySelectorAll('section[class^="jview jview-0-"], .btn_apply button.sri_btn_lg'));
-            for (const container of buttonContainers) {
-              const containerButtons = Array.from(container.querySelectorAll('button, a'));
-              result = findApplyButton(containerButtons);
-              if (result) return result;
+            if (applyBtn) {
+              // 발견된 버튼에 식별자 추가
+              applyBtn.setAttribute('data-apply-button', 'true');
+              return {
+                selector: '[data-apply-button="true"]',
+                text: applyBtn.textContent?.trim() || ''
+              };
             }
             
-            return findApplyButton(buttonContainers);
+            return null;
           });
           
           if (!applyButtonInfo) {
@@ -871,34 +825,18 @@ export default class ScraperControlService extends ScraperServiceABC {
           
           // 12. iframe URL 검증 - 채용 공고 URL과 iframe URL 간의 호환성 확인
           const isValidIframeUrl = await browserService.evaluate<boolean>(page, (iframeUrl, jobUrl) => {
-            // about:blank는 일부 페이지에서 초기 iframe URL로 사용되므로 유효한 것으로 처리
-            if (iframeUrl === 'about:blank') {
-              return true;
-            }
-            
             // 기본 검증: iframe URL이 사람인 도메인에 속하는지 확인
-            const isSaraminDomain = iframeUrl.includes('saramin.co.kr') || iframeUrl.startsWith('/zf_user/');
+            const isSaraminDomain = iframeUrl.includes('saramin.co.kr');
             
-            // 공고 ID 추출 - 여러 패턴 지원 (id, rec_idx 등)
-            const jobIdMatch = jobUrl.match(/[?&](id|rec_idx)=(\d+)/);
-            const jobId = jobIdMatch ? jobIdMatch[2] : null;
+            // jobUrl에서 공고 ID 추출 (예: /recruit/view?id=12345 -> 12345)
+            const jobIdMatch = jobUrl.match(/[?&]id=(\d+)/);
+            const jobId = jobIdMatch ? jobIdMatch[1] : null;
             
-            // iframe URL에서도 ID 추출 시도
-            const iframeIdMatch = iframeUrl.match(/[?&](id|rec_idx)=(\d+)/);
-            const iframeId = iframeIdMatch ? iframeIdMatch[2] : null;
+            // iframe URL에도 같은 ID가 있는지 확인
+            const iframeHasMatchingId = jobId ? iframeUrl.includes(jobId) : false;
             
-            // ID 매칭 확인 - 둘 다 있을 경우만 비교
-            const idsMatch = (jobId && iframeId) ? (jobId === iframeId) : true;
-            
-            // 지원 관련 URL인지 확인 (여러 패턴 추가)
-            const isApplyUrl = 
-              iframeUrl.includes('apply_form') || 
-              iframeUrl.includes('/apply?') || 
-              iframeUrl.includes('/member/apply') ||
-              iframeUrl.includes('t_content=relay_view');
-            
-            // 더 유연한 검증 조건
-            return isSaraminDomain && (idsMatch || isApplyUrl);
+            // 둘 다 true이면 유효한 URL
+            return isSaraminDomain && (iframeHasMatchingId || iframeUrl.includes('apply_form'));
           }, iframeUrl, jobUrl);
           
           if (!isValidIframeUrl) {
@@ -909,42 +847,12 @@ export default class ScraperControlService extends ScraperServiceABC {
           }
           
           // 13. iframe URL로 이동
-          // about:blank인 경우 특별 처리
-          if (iframeUrl === 'about:blank') {
-            logger.log('iframe이 about:blank입니다. 대신 현재 페이지의 지원 폼을 찾습니다...', 'info');
-            
-            // about:blank인 경우 현재 페이지에서 계속 진행
-            // 추가 대기 시간으로 iframe 로딩을 기다림
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            
-            // 현재 페이지에서 모달이 표시되었는지 확인
-            const modalVisible = await browserService.evaluate<boolean>(page, () => {
-              return document.querySelector('.modal_apply, #quick_apply_layer, .sri_layer') !== null;
-            });
-            
-            if (!modalVisible) {
-              logger.log('지원 모달을 찾을 수 없습니다.', 'warning');
-              failedCount++;
-              details.push(`[실패] ${companyName} - ${jobTitle}: 모달 없음 (about:blank)`);
-              continue;
-            }
-          } else {
-            // 일반 iframe URL 처리
-            const fullIframeUrl = iframeUrl.startsWith('http') ? 
-              iframeUrl : `https://www.saramin.co.kr${iframeUrl.startsWith('/') ? '' : '/'}${iframeUrl}`;
-            
-            logger.log(`입사지원 iframe으로 이동: ${fullIframeUrl}`, 'info');
-            
-            try {
-              await page.goto(fullIframeUrl);
-              await new Promise(resolve => setTimeout(resolve, 2000));
-            } catch (navError) {
-              logger.log(`iframe 페이지 이동 실패: ${navError}`, 'error');
-              failedCount++;
-              details.push(`[실패] ${companyName} - ${jobTitle}: iframe 이동 실패`);
-              continue;
-            }
-          }
+          const fullIframeUrl = iframeUrl.startsWith('http') ? 
+            iframeUrl : `https://www.saramin.co.kr${iframeUrl}`;
+          
+          logger.log(`입사지원 iframe으로 이동: ${fullIframeUrl}`, 'info');
+          await page.goto(fullIframeUrl);
+          await new Promise(resolve => setTimeout(resolve, 2000));
           
           // 14. 모달 내 지원하기 버튼 찾기
           const modalApplyButton = await browserService.evaluate<string>(page, () => {
