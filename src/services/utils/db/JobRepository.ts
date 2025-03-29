@@ -186,7 +186,7 @@ export class JobRepository {
         where: {
           is_gpt_checked: true,
           match_score: {
-            [sequelize.Op.gte]: 70 // 70점 이상인 채용공고만
+            [sequelize.Op.gte]: 69 // 69점 이상인 채용공고만
           },
           is_recommended: true
         },
