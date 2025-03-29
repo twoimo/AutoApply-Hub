@@ -40,22 +40,16 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   }
   
   /**
-   * 채용공고 매칭 실행
+   * 자동 채용공고 매칭 실행
    * @httpMethod get
-   * @path /match-jobs
+   * @path /run-auto-job-matching
    * @objectParams {number} limit - 가져올 매칭되지 않은 채용공고 수 (기본값: 100)
    * @objectParams {number} matchLimit - 결과로 반환할 최대 매칭 수 (기본값: 100)
    */
-  public async matchJobs({
-    limit = JobMatchingConstants.DEFAULT_JOB_LIMIT,
-    matchLimit = JobMatchingConstants.DEFAULT_MATCH_LIMIT
-  }: {
-    limit?: number;
-    matchLimit?: number;
-  }) {
-    return await this.factory.matchJobs(limit, matchLimit);
+  public async runAutoJobMatching({}: {}) {
+    return await this.scraperControlService.runAutoJobMatching();
   }
-  
+
   /**
    * 추천 채용공고 조회
    * @httpMethod get

@@ -388,8 +388,8 @@ export default class ScraperControlService extends ScraperServiceABC {
       // 매칭 서비스 획득
       const jobRepository = this.factory.getJobRepository();
       
-      // MainServiceCommunicateService 인스턴스 생성
-      const mainService = new (require('../developer/MainServiceCommunicateService').default)();
+      // JobMatchingService 인스턴스 생성
+      const mainService = new (await import('./ai/JobMatchingService')).default();
       
       // 배치 사이즈와 처리된 작업 수 초기화
       const batchSize = 10;
