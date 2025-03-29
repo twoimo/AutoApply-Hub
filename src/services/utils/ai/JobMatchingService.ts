@@ -185,7 +185,11 @@ export default class JobMatchingService {
    * 매칭되지 않은 채용 공고 가져오기
    */
   private async getUnmatchedJobs(limit: number): Promise<CompanyRecruitmentTable[]> {
+    // 최적화: 필요한 필드만 선택적으로 가져오기
     return await CompanyRecruitmentTable.findAll({
+      attributes: ['id', 'company_name', 'job_title', 'company_type', 'job_location', 
+                   'job_type', 'job_salary', 'deadline', 'job_url', 
+                   'employment_type', 'job_description'],
       where: {
         [Op.or]: [
           { is_gpt_checked: false },
@@ -198,60 +202,74 @@ export default class JobMatchingService {
   }
 
   /**
-   * 매칭 결과를 DB에 업데이트
+   * 매칭 결과를 DB에 업데이트 - 최적화 버전
    */
   private async updateMatchResults(results: JobMatchResult[]): Promise<void> {
     const logger = this.factory.getLogger();
     logger.log(`${results.length}개의 매칭 결과를 DB에 업데이트 중...`, 'info');
 
-    for (const result of results) {
-      try {
-        // 필드 값 타입 확인 및 문자열로 변환
-        const reason = typeof result.reason === 'object' ? 
-          JSON.stringify(result.reason) : String(result.reason);
-        
-        const strength = typeof result.strength === 'object' ? 
-          JSON.stringify(result.strength) : String(result.strength);
-        
-        const weakness = typeof result.weakness === 'object' ? 
-          JSON.stringify(result.weakness) : String(result.weakness);
-          
-        // 대괄호와 쌍따옴표 제거 (문자열의 처음과 끝에 있는 경우)
-        const cleanReason = reason.replace(/^\[|\]$|^"|"$/g, '');
-        const cleanStrength = strength.replace(/^\[|\]$|^"|"$/g, '');
-        const cleanWeakness = weakness.replace(/^\[|\]$|^"|"$/g, '');
+    // 대용량 처리를 위한 배치 크기 설정
+    const BATCH_SIZE = 50;
+    const totalBatches = Math.ceil(results.length / BATCH_SIZE);
 
-        await CompanyRecruitmentTable.update(
-          {
-            is_gpt_checked: true,
-            match_score: result.score,
-            match_reason: cleanReason,
-            strength: cleanStrength,
-            weakness: cleanWeakness,
-            is_recommended: result.apply_yn
-          },
-          {
-            where: { id: result.id }
-          }
-        );
-      } catch (error) {
-        logger.log(`ID ${result.id} 매칭 결과 업데이트 실패: ${error}`, 'error');
-      }
+    // 정규식 한 번만 컴파일 (성능 향상)
+    const cleanRegex = /[\[\]"\\]/g;
+    
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const start = batchIndex * BATCH_SIZE;
+      const end = Math.min(start + BATCH_SIZE, results.length);
+      const batch = results.slice(start, end);
+      
+      // 각 배치에 대한 벌크 업데이트 준비
+      const bulkUpdatePromises = batch.map(result => {
+        try {
+          // 문자열 변환 및 정리 로직 최적화
+          const cleanString = (value: any): string => {
+            if (value === null || value === undefined) return '';
+            const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+            return str.replace(cleanRegex, '');
+          };
+
+          return CompanyRecruitmentTable.update(
+            {
+              is_gpt_checked: true,
+              match_score: result.score,
+              match_reason: cleanString(result.reason),
+              strength: cleanString(result.strength),
+              weakness: cleanString(result.weakness),
+              is_recommended: result.apply_yn
+            },
+            {
+              where: { id: result.id }
+            }
+          );
+        } catch (error) {
+          logger.log(`ID ${result.id} 매칭 결과 업데이트 실패: ${error}`, 'error');
+          return Promise.resolve(); // 에러가 있어도 Promise chain이 중단되지 않도록
+        }
+      });
+      
+      // 배치 병렬 처리
+      await Promise.all(bulkUpdatePromises);
+      logger.log(`배치 ${batchIndex + 1}/${totalBatches} 처리 완료 (${batch.length}개)`, 'info');
     }
 
-    // 매칭 완료된 결과 10개 콘솔에 출력
-    logger.log('매칭 결과 요약 (상위 10개):', 'info', true);
-    
-    // 점수 내림차순으로 정렬하여 상위 10개만 표시
-    const topResults = [...results]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
-    
-    // 결과 출력 포맷팅
-    topResults.forEach(result => {
-      const recommendText = result.apply_yn ? '(추천)' : '(비추천)';
-      logger.log(`ID: ${result.id}, 점수: ${result.score} ${recommendText}`, result.apply_yn ? 'success' : 'warning');
-    });
+    // 로깅용 상위 결과는 미리 정렬하여 한 번만 처리
+    if (results.length > 0) {
+      // 원본 배열 변경 없이 상위 10개만 가져오기 (최적화)
+      const topResults = results
+        .filter(r => r && typeof r.score === 'number') // 유효성 검사 추가
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10);
+      
+      logger.log('매칭 결과 요약 (상위 10개):', 'info', true);
+      
+      // 결과 출력 포맷팅
+      topResults.forEach(result => {
+        const recommendText = result.apply_yn ? '(추천)' : '(비추천)';
+        logger.log(`ID: ${result.id}, 점수: ${result.score} ${recommendText}`, result.apply_yn ? 'success' : 'warning');
+      });
+    }
 
     logger.log('매칭 결과 DB 업데이트 완료', 'success');
   }
@@ -278,16 +296,23 @@ ${jobsJson}
   }
 
   /**
-   * AI 응답에서 JSON 부분만 추출
+   * AI 응답에서 JSON 부분만 추출 - 성능 최적화
    */
   private extractJSON(text: string): string {
-    // JSON 시작과 끝 부분을 찾아 추출 (s 플래그 제거)
-    const jsonMatch = text.match(/\[\s*\{.*\}\s*\]/);
-    if (jsonMatch) {
-      return jsonMatch[0];
+    // 최적화된 정규식 사용 - 더 제한적인 패턴으로 성능 향상
+    try {
+      const startIdx = text.indexOf('[');
+      const endIdx = text.lastIndexOf(']');
+      
+      if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
+        return text.substring(startIdx, endIdx + 1);
+      }
+
+      // 정규식은 마지막 수단으로 사용 (성능 비용이 더 높음)
+      const jsonMatch = text.match(/\[\s*\{.*\}\s*\]/);
+      return jsonMatch ? jsonMatch[0] : text;
+    } catch (error) {
+      return text; // 오류 발생 시 원본 텍스트 반환
     }
-    
-    // 정규식으로 추출 실패 시 전체 텍스트 반환
-    return text;
   }
 }
