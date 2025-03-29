@@ -54,17 +54,30 @@ export default class ScraperControlService extends ScraperServiceABC {
       // 한국 시간 (KST) 기준 오후 5시 (17:00) 주중에만 실행
       // 크론 표현식: 분 시 일 월 요일
       this.cronJob = cron.schedule('0 17 * * 1-5', async () => {
-        this.factory.getLogger().log('스케줄된 스크래핑 작업이 시작됩니다.', 'info');
+        const logger = this.factory.getLogger();
+        
+        logger.logSeparator();
+        logger.log('스케줄된 스크래핑 작업이 시작됩니다.', 'info');
+        logger.logSeparator();
+        
         await this.runScheduledScraping(config);
       }, {
         scheduled: true,
         timezone: 'Asia/Seoul' // 한국 시간대 설정
       });
       
-      this.factory.getLogger().log('스크래핑 작업이 한국 시간 주중 오후 5시(17:00)에 실행되도록 스케줄링되었습니다.', 'success');
+      const logger = this.factory.getLogger();
+      logger.logSeparator();
+      logger.log('스크래핑 작업이 한국 시간 주중 오후 5시(17:00)에 실행되도록 스케줄링되었습니다.', 'success');
+      logger.logSeparator();
+      
       return true;
     } catch (error) {
-      this.factory.getLogger().log(`스크래핑 작업 스케줄링 중 오류 발생: ${error}`, 'error');
+      const logger = this.factory.getLogger();
+      logger.logSeparator();
+      logger.log(`스크래핑 작업 스케줄링 중 오류 발생: ${error}`, 'error');
+      logger.logSeparator();
+      
       return false;
     }
   }
@@ -84,11 +97,16 @@ export default class ScraperControlService extends ScraperServiceABC {
       logger.log(`스케줄된 스크래핑 완료: ${jobs.length}개 새 채용 공고 수집됨`, 'success');
       
       // 스크래핑 완료 후 자동 매칭 실행
+      logger.logSeparator();
       logger.log('스케줄된 스크래핑 완료 후 자동 매칭을 시작합니다...', 'info');
+      logger.logSeparator();
+      
       await this.runAutoJobMatching();
       
     } catch (error) {
+      logger.logSeparator();
       logger.log(`스케줄된 스크래핑 작업 실행 중 오류: ${error}`, 'error');
+      logger.logSeparator();
     }
   }
 
@@ -268,7 +286,11 @@ export default class ScraperControlService extends ScraperServiceABC {
     
     const collectedJobs: JobInfo[] = [];
     
-    logger.log(`사람인 채용 정보 스크래핑 시작 (페이지 ${settings.startPage}부터)`, 'info');
+    // 로깅 개선: 구분선과 함께 시작 메시지 출력
+    logger.logSeparator();
+    logger.log(`사람인 채용 정보 스크래핑 시작 (페이지 ${settings.startPage}부터)`, 'info', true);
+    logger.logSeparator('-');
+    
     const startTime = Date.now();
     
     let consecutiveDuplicates = 0;
@@ -284,7 +306,8 @@ export default class ScraperControlService extends ScraperServiceABC {
   
       // 페이지별 처리
       for (let i = settings.startPage; i <= settings.endPage && continueScrapping; i++) {
-        logger.log(`페이지 ${i} 처리 중...`);
+        // 로깅 개선: 페이지 처리 시작 명확하게 표시
+        logger.log(`페이지 ${i} 처리 중...`, 'info', true);
         
         // 페이지 처리
         const result = await saraminScraper.processListPage(page, i, settings.waitTime);
@@ -305,6 +328,8 @@ export default class ScraperControlService extends ScraperServiceABC {
         
         // 스크래핑 중단 조건 확인
         if (!continueScraping.shouldContinue) {
+          // 로깅 개선: 중단 이유 명확하게 표시
+          logger.log('연속된 빈 페이지 또는 중복 페이지로 인해 스크래핑을 중단합니다.', 'warning', true);
           break;
         }
         
@@ -312,24 +337,44 @@ export default class ScraperControlService extends ScraperServiceABC {
         continueScrapping = result.shouldContinue;
         
         collectedJobs.push(...pageJobs);
-        logger.log(`페이지 ${i} 완료: ${pageJobs.length}개 채용 공고 추출됨`, 'success');
+        // 로깅 개선: 성공 메시지를 더 눈에 띄게 표시
+        logger.log(`페이지 ${i} 완료: ${pageJobs.length}개 채용 공고 추출됨`, 'success', true);
+        
+        // 로깅 개선: 진행 상황 표시
+        if (i < settings.endPage && continueScrapping) {
+          logger.log(`다음 페이지로 이동 중...`, 'info');
+          await new Promise(resolve => setTimeout(resolve, 1000)); // 짧은 대기로 로그가 터미널에 표시될 시간 확보
+        }
       }
+      
+      // 로깅 개선: 구분선으로 결과 요약 구분
+      logger.logSeparator('-');
+      logger.log('스크래핑 결과 요약', 'info', true);
       
       // 결과 요약 출력
       this.printSummary(collectedJobs);
       
       const elapsedTime = (Date.now() - startTime) / 1000;
-      logger.log(`총 소요 시간: ${elapsedTime.toFixed(2)}초`, 'success');
+      logger.log(`총 소요 시간: ${elapsedTime.toFixed(2)}초`, 'success', true);
       
       // 스크래핑 완료 후 자동 매칭 실행
       if (collectedJobs.length > 0) {
-        logger.log('스크래핑 완료 후 자동 매칭을 시작합니다...', 'info');
+        logger.logSeparator('-');
+        logger.log('스크래핑 완료 후 자동 매칭을 시작합니다...', 'info', true);
         await this.runAutoJobMatching();
       }
       
+      // 로깅 개선: 구분선으로 스크래핑 종료 명확하게 표시
+      logger.logSeparator();
+      logger.log(`스크래핑 작업이 완료되었습니다. 총 ${collectedJobs.length}개 채용 공고 수집`, 'success', true);
+      logger.logSeparator();
+      
       return collectedJobs;
     } catch (error) {
-      logger.log(`스크래핑 중 오류 발생: ${error}`, 'error');
+      // 로깅 개선: 오류 메시지 더 명확하게 표시
+      logger.logSeparator();
+      logger.log(`스크래핑 중 오류 발생: ${error}`, 'error', true);
+      logger.logSeparator();
       return collectedJobs;
     } finally {
       // 브라우저 종료
@@ -347,7 +392,7 @@ export default class ScraperControlService extends ScraperServiceABC {
     
     // 구분선으로 작업 시작 표시
     logger.logSeparator();
-    logger.log('🤖 자동 채용 공고 매칭 작업을 시작합니다', 'info');
+    logger.log('자동 채용 공고 매칭 작업을 시작합니다', 'info');
     logger.logSeparator();
     
     const startTime = Date.now();
@@ -377,7 +422,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       while (shouldContinue) {
         // 배치 시작 로그
-        logger.log(`📋 배치 #${batchNumber} 매칭 작업 시작 (최대 ${batchSize}개)`, 'info');
+        logger.log(`배치 #${batchNumber} 매칭 작업 시작 (최대 ${batchSize}개)`, 'info');
         
         // 매칭되지 않은 채용 공고 가져오기
         const unmatchedJobs = await jobRepository.getUnmatchedJobs(batchSize);
@@ -408,20 +453,7 @@ export default class ScraperControlService extends ScraperServiceABC {
           processedCount = unmatchedJobs.length;
           totalProcessed += processedCount;
           
-          // 매칭 결과 요약
-          if (matchResult.results && matchResult.results.length > 0) {
-            logger.log(`매칭 결과: ${matchResult.results.length}개 매칭 완료`, 'success');
-            
-            // 상위 매칭 결과 로깅
-            matchResult.results.slice(0, 3).forEach((result: JobMatchResult, idx: number) => {
-              logger.log(`  ${idx+1}. ID ${result.id}: ${result.score}점 (${result.apply_yn ? '지원 권장' : '지원 비권장'})`, 
-                result.apply_yn ? 'success' : 'warning');
-            });
-          } else {
-            logger.log(`매칭은 성공했으나 결과가 없습니다.`, 'warning');
-          }
-          
-          logger.log(`📦 배치 #${batchNumber} 완료: ${processedCount}개 처리됨, 총 ${totalProcessed}/${totalUnmatched}개`, 'success');
+          logger.log(`배치 #${batchNumber} 완료: ${processedCount}개 처리됨, 총 ${totalProcessed}/${totalUnmatched}개`, 'success');
         } else {
           logger.log(`매칭 실패: ${matchResult.message}`, 'error');
           shouldContinue = false;
@@ -445,7 +477,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       
       const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
       logger.logSeparator();
-      logger.log(`✅ 자동 매칭 작업 완료: 총 ${totalProcessed}개 채용 공고 처리됨 (소요 시간: ${elapsedTime}초)`, 'success');
+      logger.log(`자동 매칭 작업 완료: 총 ${totalProcessed}개 채용 공고 처리됨 (소요 시간: ${elapsedTime}초)`, 'success');
       logger.logSeparator();
     } catch (error) {
       logger.log(`❌ 자동 매칭 중 오류 발생: ${error}`, 'error');
@@ -486,20 +518,20 @@ export default class ScraperControlService extends ScraperServiceABC {
     const stats = jobRepository.createJobStatistics(jobs);
     
     console.log(colors.yellow.bold('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
-    console.log(colors.yellow.bold('📊 스크래핑 결과 요약'));
+    console.log(colors.yellow.bold('스크래핑 결과 요약'));
     console.log(colors.yellow.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
-    console.log(colors.green(`✅ 총 수집된 채용 공고: ${jobs.length}개`));
+    console.log(colors.green(`총 수집된 채용 공고: ${jobs.length}개`));
     
     // 상위 회사 출력
     if (stats.topCompanies.length > 0) {
-      console.log(colors.cyan('\n🏢 채용 공고가 가장 많은 회사:'));
+      console.log(colors.cyan('\n채용 공고가 가장 많은 회사:'));
       stats.topCompanies.forEach(([company, count], index) => {
         console.log(colors.cyan(`   ${index + 1}. ${company}: ${count}개`));
       });
     }
     
     // 경력 요구사항별 채용 공고 출력
-    console.log(colors.blue('\n💼 경력 요구사항별 채용 공고:'));
+    console.log(colors.blue('\n경력 요구사항별 채용 공고:'));
     Object.entries(stats.jobTypeCounts)
       .sort((a, b) => b[1] - a[1])
       .forEach(([type, count]) => {
@@ -507,7 +539,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       });
     
     // 고용 형태별 채용 공고 출력
-    console.log(colors.magenta('\n👔 고용 형태별 채용 공고:'));
+    console.log(colors.magenta('\n고용 형태별 채용 공고:'));
     Object.entries(stats.employmentTypeCounts)
       .sort((a, b) => b[1] - a[1])
       .forEach(([type, count]) => {

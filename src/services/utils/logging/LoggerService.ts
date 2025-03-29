@@ -5,7 +5,7 @@ import { LoggingConstants } from '../constants/AppConstants';
 /**
  * 로그 레벨 타입
  */
-type LogLevel = 'debug' | 'info' | 'success' | 'warning' | 'error';
+type LogLevel = 'info' | 'success' | 'warning' | 'error' | 'debug';
 
 /**
  * 로깅 서비스
@@ -34,23 +34,38 @@ export class LoggerService {
 
   /**
    * 로그 메시지 기록
+   * @param message 로그 메시지
+   * @param level 로그 레벨
+   * @param forceDisplay 항상 표시 여부 (verbose 설정 무시)
    */
-  public log(message: string, level: LogLevel = LoggingConstants.DEFAULT_LEVEL as LogLevel): void {
+  public log(message: string, level: LogLevel = LoggingConstants.DEFAULT_LEVEL as LogLevel, forceDisplay: boolean = false): void {
     // 현재 설정된 레벨보다 우선순위가 낮으면 로깅하지 않음
-    if (LoggingConstants.PRIORITY[level] < LoggingConstants.PRIORITY[this.logLevel]) {
+    if (!this.verboseLogging && !forceDisplay && level === 'debug') {
       return;
     }
 
-    const timestamp = new Date().toISOString();
-    const formattedMessage = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
+    const timestamp = new Date().toLocaleTimeString();
+    let formattedMessage = `[${timestamp}]`;
 
-    // 콘솔 출력이 활성화된 경우 콘솔에 로그 출력
-    if (this.consoleOutput) {
-      this.printColoredLog(formattedMessage, level);
+    switch (level) {
+      case 'info':
+        formattedMessage = colors.cyan(`${formattedMessage} ${message}`);
+        break;
+      case 'success':
+        formattedMessage = colors.green(`${formattedMessage} ${message}`);
+        break;
+      case 'warning':
+        formattedMessage = colors.yellow(`${formattedMessage} ${message}`);
+        break;
+      case 'error':
+        formattedMessage = colors.red(`${formattedMessage} ${message}`);
+        break;
+      case 'debug':
+        formattedMessage = colors.gray(`${formattedMessage} ${message}`);
+        break;
     }
 
-    // 로그 파일에 저장 로직 (필요시 구현)
-    // TODO: 로그 파일 저장 기능 구현
+    console.log(formattedMessage);
   }
 
   /**
@@ -97,14 +112,17 @@ export class LoggerService {
    */
   public logVerbose(message: string): void {
     if (this.verboseLogging) {
-      console.log(colors.gray('   ' + message));
+      console.log(colors.gray(`[DEBUG] ${message}`));
     }
   }
 
   /**
-   * 구분선 출력
+   * 구분선 출력 (로그 그룹 구분용)
+   * @param char 구분선에 사용할 문자 (기본: -)
    */
-  public logSeparator(): void {
-    console.log(colors.yellow.bold('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+  public logSeparator(char: string = '-'): void {
+    const width = 80; // 터미널 너비에 맞게 조정
+    const separator = char.repeat(width);
+    console.log(colors.gray(separator));
   }
 }
