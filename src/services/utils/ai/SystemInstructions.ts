@@ -110,7 +110,7 @@ export const getSystemInstructions = (): string => {
   {
     "id": 채용공고 ID,
     "score": 종합 점수,
-    "reason": "이 채용공고는 [주요 적합성 이유 1-3개 요약]",
+    "reason": "[주요 적합성 이유 1-3개 요약]",
     "strength": "[지원자의 강점과 직무 연관성]",
     "weakness": "[지원자와 직무 간 격차 또는 불일치점]",
     "apply_yn": true/false

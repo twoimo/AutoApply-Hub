@@ -3,6 +3,8 @@ import { getDefaultCandidateProfile, formatCandidateProfile } from './CandidateP
 import { ScraperFactory } from '../ScraperFactory';
 import CompanyRecruitmentTable from '../../../models/main/CompanyRecruitmentTable';
 import { Op } from 'sequelize';
+import { MistralAIService } from './MistralAIService';
+import { JobInfo } from '../types/JobTypes';
 
 /**
  * 일자리 매칭 결과 인터페이스
@@ -26,15 +28,33 @@ export interface JobMatchOptions {
 
 /**
  * AI 기반 일자리 매칭 서비스
- * OpenAI를 활용하여 채용 공고와 구직자 프로필을 매칭합니다.
+ * Mistral AI를 활용하여 채용 공고와 구직자 프로필을 매칭합니다.
  */
 export default class JobMatchingService {
   private factory: ScraperFactory;
   private candidateProfile: any;
+  private mistralService: MistralAIService | null = null;
 
   constructor() {
     this.factory = ScraperFactory.getInstance();
     this.candidateProfile = getDefaultCandidateProfile();
+    this.initMistralService();
+  }
+
+  /**
+   * Mistral 서비스 초기화
+   */
+  private async initMistralService(): Promise<void> {
+    const configService = this.factory.getConfigService();
+    const logger = this.factory.getLogger();
+    const mistralApiKey = configService.getMistralApiKey();
+    
+    if (!mistralApiKey) {
+      logger.log('Mistral API 키가 설정되지 않았습니다.', 'error');
+      return;
+    }
+    
+    this.mistralService = new MistralAIService(mistralApiKey, logger);
   }
 
   /**
@@ -50,8 +70,6 @@ export default class JobMatchingService {
     const matchLimit = options.matchLimit || 100;
 
     try {
-      logger.log(`매칭되지 않은 채용 공고 최대 ${limit}개 가져오는 중...`, 'info');
-
       // 매칭되지 않은 채용 공고 가져오기
       const unmatchedJobs = await this.getUnmatchedJobs(limit);
 
@@ -63,7 +81,7 @@ export default class JobMatchingService {
         };
       }
 
-      logger.log(`${unmatchedJobs.length}개의 채용 공고를 매칭 중...`, 'info');
+      logger.log(`Mistral AI를 사용하여 ${unmatchedJobs.length}개의 채용 공고를 매칭 중...`, 'info');
 
       // AI 매칭 요청 준비
       const jobsData = unmatchedJobs.map(job => ({
@@ -80,48 +98,55 @@ export default class JobMatchingService {
         jobDescription: job.job_description
       }));
 
-      // ConfigService를 통해 OpenAI 서비스에 접근
-      const configService = this.factory.getConfigService();
+      // Mistral 서비스가 초기화되지 않았으면 초기화
+      if (!this.mistralService) {
+        await this.initMistralService();
+        
+        if (!this.mistralService) {
+          return {
+            success: false,
+            message: 'Mistral AI 서비스를 초기화할 수 없습니다.'
+          };
+        }
+      }
       
-      // 시스템 지시사항 가져오기
-      const systemInstructions = getSystemInstructions();
+      // 구직자 프로필 포맷팅
+      const candidateProfileText = formatCandidateProfile(this.candidateProfile);
       
-      // 요청 형식 구성
-      const prompt = this.buildPrompt(jobsData);
+      // Mistral AI로 채용공고 매칭 실행
+      const response = await this.mistralService.matchJobsWithProfile(
+        jobsData as JobInfo[], 
+        candidateProfileText
+      );
 
-      // 더미 결과를 생성하여 처리 로직 테스트
-      const dummyResponse = {
-        content: this.generateDummyResponse(jobsData)
-      };
-
-      /* 실제 OpenAI 서비스가 준비되면 아래 코드로 대체
-      const response = await openaiService.createChatCompletion([
-        { role: 'system', content: systemInstructions },
-        { role: 'user', content: prompt }
-      ]);
-      */
-      const response = dummyResponse;
-
-      if (!response || !response.content) {
+      if (!response) {
         return {
           success: false,
-          message: 'AI 서비스 응답이 유효하지 않습니다.'
+          message: 'Mistral AI 서비스 응답이 유효하지 않습니다.'
         };
       }
 
       // 응답 처리
       let matchResults: JobMatchResult[] = [];
       try {
-        // JSON 응답 파싱
-        const jsonText = this.extractJSON(response.content);
-        matchResults = JSON.parse(jsonText);
+        // 응답이 이미 JSON 객체인지 문자열인지 확인
+        if (typeof response === 'string') {
+          // JSON 응답 파싱
+          const jsonText = this.extractJSON(response);
+          matchResults = JSON.parse(jsonText);
+        } else if (Array.isArray(response)) {
+          // 이미 파싱된 배열인 경우
+          matchResults = response;
+        } else {
+          throw new Error('Mistral AI 응답이 예상 형식과 다릅니다.');
+        }
 
         // 결과가 없으면 빈 배열로 처리
         if (!Array.isArray(matchResults)) {
-          logger.log('AI 응답이 유효한 JSON 배열이 아닙니다.', 'error');
+          logger.log('Mistral AI 응답이 유효한 JSON 배열이 아닙니다.', 'error');
           return {
             success: false,
-            message: 'AI 응답이 유효한 JSON 배열이 아닙니다.'
+            message: 'Mistral AI 응답이 유효한 JSON 배열이 아닙니다.'
           };
         }
 
@@ -181,13 +206,28 @@ export default class JobMatchingService {
 
     for (const result of results) {
       try {
+        // 필드 값 타입 확인 및 문자열로 변환
+        const reason = typeof result.reason === 'object' ? 
+          JSON.stringify(result.reason) : String(result.reason);
+        
+        const strength = typeof result.strength === 'object' ? 
+          JSON.stringify(result.strength) : String(result.strength);
+        
+        const weakness = typeof result.weakness === 'object' ? 
+          JSON.stringify(result.weakness) : String(result.weakness);
+          
+        // 대괄호와 쌍따옴표 제거 (문자열의 처음과 끝에 있는 경우)
+        const cleanReason = reason.replace(/^\[|\]$|^"|"$/g, '');
+        const cleanStrength = strength.replace(/^\[|\]$|^"|"$/g, '');
+        const cleanWeakness = weakness.replace(/^\[|\]$|^"|"$/g, '');
+
         await CompanyRecruitmentTable.update(
           {
             is_gpt_checked: true,
             match_score: result.score,
-            match_reason: result.reason,
-            strength: result.strength,
-            weakness: result.weakness,
+            match_reason: cleanReason,
+            strength: cleanStrength,
+            weakness: cleanWeakness,
             is_recommended: result.apply_yn
           },
           {
@@ -198,6 +238,20 @@ export default class JobMatchingService {
         logger.log(`ID ${result.id} 매칭 결과 업데이트 실패: ${error}`, 'error');
       }
     }
+
+    // 매칭 완료된 결과 10개 콘솔에 출력
+    logger.log('매칭 결과 요약 (상위 10개):', 'info', true);
+    
+    // 점수 내림차순으로 정렬하여 상위 10개만 표시
+    const topResults = [...results]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10);
+    
+    // 결과 출력 포맷팅
+    topResults.forEach(result => {
+      const recommendText = result.apply_yn ? '(추천)' : '(비추천)';
+      logger.log(`ID: ${result.id}, 점수: ${result.score} ${recommendText}`, result.apply_yn ? 'success' : 'warning');
+    });
 
     logger.log('매칭 결과 DB 업데이트 완료', 'success');
   }
@@ -224,7 +278,7 @@ ${jobsJson}
   }
 
   /**
-   * OpenAI 응답에서 JSON 부분만 추출
+   * AI 응답에서 JSON 부분만 추출
    */
   private extractJSON(text: string): string {
     // JSON 시작과 끝 부분을 찾아 추출 (s 플래그 제거)
@@ -235,26 +289,5 @@ ${jobsJson}
     
     // 정규식으로 추출 실패 시 전체 텍스트 반환
     return text;
-  }
-
-  /**
-   * 테스트를 위한 더미 응답 생성
-   */
-  private generateDummyResponse(jobsData: any[]): string {
-    const dummyResults = jobsData.map(job => {
-      const score = Math.floor(Math.random() * 100);
-      const apply = score >= 70;
-
-      return {
-        id: job.id,
-        score: score,
-        reason: `이 채용공고는 구직자의 ${apply ? '강점과 잘 맞습니다' : '약점이 있습니다'}. 점수: ${score}`,
-        strength: `구직자의 기술 스택과 경험이 직무 요구사항과 ${apply ? '잘 맞습니다' : '일부 일치합니다'}`,
-        weakness: `${apply ? '경력 기간이 약간 부족할 수 있습니다' : '기술 스택과 요구사항 간에 격차가 있습니다'}`,
-        apply_yn: apply
-      };
-    });
-
-    return JSON.stringify(dummyResults, null, 2);
   }
 }

@@ -428,8 +428,6 @@ export default class ScraperControlService extends ScraperServiceABC {
         const progressPct = Math.min(100, Math.round((totalProcessed / totalUnmatched) * 100));
         logger.log(`매칭 진행 상황: ${totalProcessed}/${totalUnmatched} (${progressPct}%)`, 'info');
         
-        logger.log(`${unmatchedJobs.length}개의 매칭되지 않은 채용 공고 매칭 중...`, 'info');
-        
         // 채용 공고 매칭 실행
         const matchResult = await mainService.matchJobs({
           limit: unmatchedJobs.length,
@@ -1027,6 +1025,3 @@ export default class ScraperControlService extends ScraperServiceABC {
     console.log(colors.yellow.bold('\n'));
   }
 }
-
-// fs 모듈 가져오기 (createReadStream 위해 필요)
-import fs from 'fs';

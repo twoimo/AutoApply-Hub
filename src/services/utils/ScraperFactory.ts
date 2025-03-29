@@ -7,7 +7,7 @@ import { BrowserService } from './browser/BrowserService';
 import { JobRepository } from './db/JobRepository';
 import { SaraminScraper } from './scraper/SaraminScraper';
 import { ConfigService } from './config/ConfigService';
-import { JobMatchingService } from './ai/JobMatchingService';
+import JobMatchingService, { JobMatchResult } from './ai/JobMatchingService';
 
 // 환경 변수 로드
 dotenv.config();
@@ -87,14 +87,10 @@ export class ScraperFactory {
         throw new Error('Mistral API 키가 설정되지 않았습니다.');
       }
       
-      this.matchingService = new JobMatchingService(
-        this.logger,
-        mistralApiKey,
-        this.jobRepository
-      );
+      // JobMatchingService는 매개변수를 받지 않음
+      this.matchingService = new JobMatchingService();
       
-      // 서비스 초기화
-      await this.matchingService.initialize();
+      // initialize 메서드는 존재하지 않으므로 제거
       this.logger.log('채용공고 매칭 서비스 초기화 완료', 'success');
     } catch (error) {
       this.logger.log(`채용공고 매칭 서비스 초기화 실패: ${error}`, 'error');
@@ -121,7 +117,11 @@ export class ScraperFactory {
         message: '매칭 서비스가 초기화되지 않았습니다.'
       };
     }
-    return await this.matchingService.executeJobMatching(limit, matchLimit);
+    // executeJobMatching 대신 matchJobs 사용
+    return await this.matchingService.matchJobs({
+      limit: limit,
+      matchLimit: matchLimit
+    });
   }
 
   /**
@@ -134,7 +134,13 @@ export class ScraperFactory {
         message: '매칭 서비스가 초기화되지 않았습니다.'
       };
     }
-    return await this.matchingService.getRecommendedJobs(limit);
+    // JobMatchingService에 getRecommendedJobs 메서드가 없으므로 수정 필요
+    // 현재 JobMatchingService에서 가능한 메서드를 사용
+    const matchResult = await this.jobRepository.getRecommendedJobs(limit);
+    return {
+      success: true,
+      recommendedJobs: matchResult
+    };
   }
 
   // 각 서비스 획득 메서드
