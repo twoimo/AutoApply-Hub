@@ -79,8 +79,8 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    */
   public async test({}: {}) {
     // 스크래퍼 컨트롤 서비스의 메소드 호출
-    // return await this.scraperControlService.openSaramin({});
-    return await this.scraperControlService.loginSaramin();
+    return await this.scraperControlService.openSaramin({});
+    // return await this.scraperControlService.loginSaramin();
   }
 
   /**
@@ -183,6 +183,31 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
       };
     } catch (error) {
       return this.createErrorResponse(`추천 채용공고를 가져오는 중 오류가 발생했습니다: ${error}`);
+    }
+  }
+  
+  /**
+   * @name 사람인 자동 지원
+   * @httpMethod get
+   * @path /apply-saramin-jobs
+   */
+  public async applySaraminJobs({}: {}): Promise<{
+    success: boolean;
+    message: string;
+    applied?: number;
+    failed?: number;
+    details?: string[];
+  }> {
+    try {
+      this.logger.log('사람인 자동 지원 기능 실행', 'info');
+      
+      // 스크래퍼 컨트롤 서비스의 메소드 호출
+      const result = await this.scraperControlService.applySaraminJobs();
+      
+      return result;
+    } catch (error) {
+      this.logger.log(`사람인 자동 지원 중 오류 발생: ${error}`, 'error');
+      return this.createErrorResponse(`사람인 자동 지원 중 오류가 발생했습니다: ${error}`);
     }
   }
   

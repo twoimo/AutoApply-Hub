@@ -7,6 +7,8 @@ import path from 'path';
 import cron from 'node-cron';
 import puppeteer from 'puppeteer'; // Add puppeteer import for Cookie types
 import dotenv from 'dotenv';
+// Add import for CompanyRecruitmentTable
+import CompanyRecruitmentTable from "../../models/main/CompanyRecruitmentTable";
 
 // .env 파일 로드
 dotenv.config();
@@ -659,6 +661,289 @@ export default class ScraperControlService extends ScraperServiceABC {
     } finally {
       // 브라우저는 종료하지 않고 유지 (로그인 상태를 계속 사용할 수 있도록)
       // 필요한 경우 별도로 closeBrowser를 호출하여 종료
+    }
+  }
+
+  /**
+   * 사람인 채용 공고에 자동으로 지원하기
+   * 추천된(is_recommended = true) 공고 중 아직 지원하지 않은(is_applied = false) 공고에 지원합니다.
+   * @returns 지원 결과 정보를 포함한 객체
+   */
+  public async applySaraminJobs(): Promise<{ 
+    success: boolean; 
+    message: string; 
+    applied: number;
+    failed: number;
+    details?: string[];
+  }> {
+    const logger = this.factory.getLogger();
+    const browserService = this.factory.getBrowserService();
+    const jobRepository = this.factory.getJobRepository();
+    
+    logger.logSeparator();
+    logger.log('사람인 자동 지원 프로세스 시작...', 'info', true);
+    
+    // 결과 추적을 위한 변수들
+    let appliedCount = 0;
+    let failedCount = 0;
+    const details: string[] = [];
+    
+    try {
+      // 1. 먼저 로그인 시도
+      const loginResult = await this.loginSaramin();
+      
+      if (!loginResult.success) {
+        logger.log(`로그인 실패: ${loginResult.message}`, 'error');
+        return { 
+          success: false, 
+          message: `로그인 실패: ${loginResult.message}`, 
+          applied: 0,
+          failed: 0
+        };
+      }
+      
+      logger.log('로그인 성공. 지원 가능한 채용 공고를 검색합니다...', 'success');
+      
+      // 2. 추천되었지만 아직 지원하지 않은 채용 공고 조회
+      const targetJobs = await CompanyRecruitmentTable.findAll({
+        where: {
+          is_recommended: true,
+          is_applied: false
+        },
+        order: [["id", "ASC"]],
+        raw: false
+      });
+      
+      if (targetJobs.length === 0) {
+        logger.log('지원할 추천 채용 공고가 없습니다.', 'info');
+        return { 
+          success: true, 
+          message: '지원할 추천 채용 공고가 없습니다.', 
+          applied: 0,
+          failed: 0 
+        };
+      }
+      
+      logger.log(`총 ${targetJobs.length}개의 지원할 채용 공고가 있습니다.`, 'info');
+      
+      // 3. 브라우저가 이미 초기화되었는지 확인 (로그인 과정에서 브라우저가 생성되어 있어야 함)
+      const browser = await browserService.initializeBrowser(false);
+      const page = await browserService.createPage();
+      
+      // 4. 각 채용 공고에 대해 지원 프로세스 실행
+      for (const job of targetJobs) {
+        try {
+          const companyName = job.company_name;
+          const jobTitle = job.job_title;
+          const jobUrl = job.job_url;
+          
+          logger.logSeparator('-');
+          logger.log(`${companyName} - ${jobTitle} 지원 시도 중...`, 'info');
+          
+          if (!jobUrl) {
+            logger.log('채용 공고 URL이 없습니다. 건너뜁니다.', 'warning');
+            failedCount++;
+            details.push(`[실패] ${companyName} - ${jobTitle}: URL 없음`);
+            continue;
+          }
+          
+          // 5. 채용 공고 페이지로 이동
+          logger.log(`채용 공고 페이지 로딩 중: ${jobUrl}`, 'info');
+          const loadSuccess = await browserService.loadPageWithRetry(page, jobUrl, {
+            waitTime: 3000
+          });
+          
+          if (!loadSuccess) {
+            logger.log('채용 공고 페이지 로드 실패. 다음 공고로 넘어갑니다.', 'error');
+            failedCount++;
+            details.push(`[실패] ${companyName} - ${jobTitle}: 페이지 로드 실패`);
+            continue;
+          }
+          
+          // 6. 지원하기 버튼 찾기
+          const applyButton = await browserService.evaluate<string>(page, () => {
+            const btnElements = Array.from(document.querySelectorAll('.btn_apply, .btn_apply_button, .sri_btn_lg, .sri_btn_md'));
+            const applyBtn = btnElements.find(btn => {
+              const text = btn.textContent?.trim();
+              return text === '입사지원' || text === '지원하기';
+            });
+            
+            if (applyBtn) {
+              // 발견된 버튼에 식별자 추가
+              applyBtn.setAttribute('data-apply-button', 'true');
+              return '[data-apply-button="true"]';
+            }
+            
+            return '';
+          });
+          
+          if (!applyButton) {
+            logger.log('지원하기 버튼을 찾을 수 없습니다. 다음 공고로 넘어갑니다.', 'warning');
+            failedCount++;
+            details.push(`[실패] ${companyName} - ${jobTitle}: 지원 버튼 없음`);
+            continue;
+          }
+          
+          // 7. 지원하기 버튼의 텍스트 확인
+          const applyButtonText = await browserService.evaluate<string>(page, (selector) => {
+            const button = document.querySelector(selector);
+            return button ? button.textContent?.trim() || '' : '';
+          }, applyButton);
+          
+          // 8. 지원하기 버튼이 "입사지원" 또는 "지원하기" 텍스트를 포함하는지 확인
+          if (applyButtonText !== '입사지원' && applyButtonText !== '지원하기') {
+            logger.log(`지원 버튼 텍스트 불일치: "${applyButtonText}". 다음 공고로 넘어갑니다.`, 'warning');
+            failedCount++;
+            details.push(`[실패] ${companyName} - ${jobTitle}: 지원 버튼 텍스트 불일치 "${applyButtonText}"`);
+            continue;
+          }
+          
+          // 9. 지원하기 버튼 클릭
+          logger.log('지원하기 버튼 클릭...', 'info');
+          await page.click(applyButton);
+          
+          // 10. 입사지원서 모달이 뜰 때까지 대기
+          // Fix: Replace waitForTimeout with setTimeout promise
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          // 11. iframe URL 추출
+          const iframeUrl = await browserService.evaluate<string>(page, () => {
+            const iframe = document.querySelector('#quick_apply_layer_frame');
+            return iframe ? iframe.getAttribute('src') || '' : '';
+          });
+          
+          if (!iframeUrl) {
+            logger.log('입사지원 iframe을 찾을 수 없습니다.', 'warning');
+            failedCount++;
+            details.push(`[실패] ${companyName} - ${jobTitle}: 지원 iframe 없음`);
+            continue;
+          }
+          
+          // 12. iframe URL로 이동
+          const fullIframeUrl = iframeUrl.startsWith('http') ? 
+            iframeUrl : `https://www.saramin.co.kr${iframeUrl}`;
+          
+          logger.log(`입사지원 iframe으로 이동: ${fullIframeUrl}`, 'info');
+          await page.goto(fullIframeUrl);
+          // Fix: Replace waitForTimeout with setTimeout promise
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // 13. 모달 내 지원하기 버튼 찾기
+          const modalApplyButton = await browserService.evaluate<string>(page, () => {
+            // 가능한 여러 선택자 시도
+            const possibleSelectors = [
+              '.area_btns.button button', 
+              '.area_btns button', 
+              '.button_apply',
+              'button:contains("지원하기")',
+              'button:contains("입사지원")'
+            ];
+            
+            // 각 선택자에 맞는 버튼 찾기
+            for (const selector of possibleSelectors) {
+              try {
+                const buttons = document.querySelectorAll(selector);
+                if (buttons.length > 0) {
+                  for (const btn of Array.from(buttons)) {
+                    const text = btn.textContent?.trim() || '';
+                    if (text.includes('지원') || text.includes('제출')) {
+                      btn.setAttribute('data-modal-apply-button', 'true');
+                      return '[data-modal-apply-button="true"]';
+                    }
+                  }
+                }
+              } catch (e) {
+                // 선택자 오류는 무시하고 다음 시도
+              }
+            }
+            
+            // 모든 버튼 요소 찾기
+            const allButtons = Array.from(document.querySelectorAll('button'));
+            const applyBtnIdx = allButtons.findIndex(btn => {
+              const text = btn.textContent?.trim() || '';
+              return text.includes('지원') || text.includes('제출');
+            });
+            
+            if (applyBtnIdx >= 0) {
+              allButtons[applyBtnIdx].setAttribute('data-modal-apply-button', 'true');
+              return '[data-modal-apply-button="true"]';
+            }
+            
+            return '';
+          });
+          
+          if (!modalApplyButton) {
+            logger.log('입사지원 모달 내 지원하기 버튼을 찾을 수 없습니다.', 'warning');
+            failedCount++;
+            details.push(`[실패] ${companyName} - ${jobTitle}: 모달 지원 버튼 없음`);
+            continue;
+          }
+          
+          // 14. 모달 내 지원하기 버튼 클릭
+          logger.log('입사지원 모달 내 지원하기 버튼 클릭...', 'info');
+          await page.click(modalApplyButton);
+          
+          // 15. 지원 완료 대기 - 더 긴 시간으로 변경 (3초 → 8초)
+          logger.log('지원 완료 페이지 로딩 대기 중... (8초)', 'info');
+          // Fix: Replace waitForTimeout with setTimeout promise and increase wait time
+          await new Promise(resolve => setTimeout(resolve, 8000));
+          
+          // 16. 지원 성공 여부 확인 (성공 메시지나 완료 페이지 확인)
+          const isSuccess = await browserService.evaluate<boolean>(page, () => {
+            // 성공 메시지 또는 완료 페이지 요소 확인
+            const successElements = document.querySelectorAll('.complete_txt, .tit_complete, .text_finished');
+            return successElements.length > 0;
+          });
+          
+          if (isSuccess) {
+            // 17. 지원 성공 시 DB 업데이트
+            logger.log(`${companyName} - ${jobTitle} 지원 성공!`, 'success');
+            job.is_applied = true;
+            await job.save();
+            
+            appliedCount++;
+            details.push(`[성공] ${companyName} - ${jobTitle}`);
+          } else {
+            logger.log(`${companyName} - ${jobTitle} 지원 실패. 성공 메시지를 찾을 수 없습니다.`, 'warning');
+            failedCount++;
+            details.push(`[실패] ${companyName} - ${jobTitle}: 지원 완료 메시지 없음`);
+          }
+          
+        } catch (error) {
+          logger.log(`지원 프로세스 중 오류 발생: ${error}`, 'error');
+          failedCount++;
+          details.push(`[오류] ${job.company_name} - ${job.job_title}: ${error}`);
+        }
+        
+        // 다음 지원 전 잠시 대기 (사이트 부하 방지)
+        logger.log('다음 지원을 위해 5초 대기 중...', 'info');
+        // Fix: Replace waitForTimeout with setTimeout promise
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+      
+      // 18. 최종 결과 요약
+      logger.logSeparator();
+      logger.log(`사람인 자동 지원 완료: 총 ${targetJobs.length}개 중 ${appliedCount}개 성공, ${failedCount}개 실패`, 
+        appliedCount > 0 ? 'success' : 'warning');
+      logger.logSeparator();
+      
+      return {
+        success: true,
+        message: `자동 지원 완료: ${appliedCount}개 성공, ${failedCount}개 실패`,
+        applied: appliedCount,
+        failed: failedCount,
+        details
+      };
+      
+    } catch (error) {
+      logger.log(`자동 지원 중 예상치 못한 오류 발생: ${error}`, 'error');
+      return {
+        success: false,
+        message: `자동 지원 중 오류 발생: ${error}`,
+        applied: appliedCount,
+        failed: failedCount,
+        details
+      };
     }
   }
 
