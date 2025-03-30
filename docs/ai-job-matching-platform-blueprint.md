@@ -379,9 +379,9 @@ wheel-micro-service-boilerplate-study/
 - `components/admin/ScrapingStatus.tsx`: 스크래핑 상태 모니터링
 - `services/adminService.ts`: 관리자 기능 API 통신
 
-### 11.3 MySQL 데이터베이스 연동
+### 11.3 supabase 데이터베이스 연동
 
-Next.js에서 MySQL 데이터베이스 연동은 서버 컴포넌트나 API 라우트에서 처리합니다:
+Next.js에서 supabase 데이터베이스 연동은 서버 컴포넌트나 API 라우트에서 처리합니다:
 
 ```
 frontend/
