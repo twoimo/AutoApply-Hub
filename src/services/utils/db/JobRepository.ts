@@ -192,6 +192,11 @@ export class JobRepository {
         raw: true
       });
       
+      this.logger.log(`${jobs.length}개의 추천 채용 공고를 조회했습니다.`, 'info');
+      if (jobs.length === 0) {
+        this.logger.log('추천 채용 공고가 없습니다.', 'warning');
+      }
+      
       return jobs.map(job => ({
         id: job.id,
         score: job.match_score,

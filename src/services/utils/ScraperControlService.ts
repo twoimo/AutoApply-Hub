@@ -771,11 +771,12 @@ export default class ScraperControlService extends ScraperServiceABC {
             continue;
           }
           
-          // 7. 지원하기 버튼 텍스트 확인 - "홈페이지 지원" 버튼은 처리하지 않음
-          if (applyButtonInfo.text === '홈페이지 지원') {
-            logger.log(`홈페이지 지원 방식의 채용공고입니다. 건너뜁니다.`, 'warning');
+          // 7. 입사지원 버튼 텍스트 확인 - "홈페이지 지원"과 "지원마감" 버튼은 처리하지 않음
+          if (applyButtonInfo.text === '홈페이지 지원' || applyButtonInfo.text === '지원마감') {
+            const reason = applyButtonInfo.text === '홈페이지 지원' ? '홈페이지 지원 방식' : '지원 마감됨';
+            logger.log(`${reason}의 채용공고입니다. 건너뜁니다.`, 'warning');
             failedCount++;
-            details.push(`[스킵] ${companyName} - ${jobTitle}: 홈페이지 지원 방식`);
+            details.push(`[스킵] ${companyName} - ${jobTitle}: ${reason}`);
             continue;
           }
           

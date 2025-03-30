@@ -22,6 +22,13 @@ export interface JobInfo {
 }
 
 /**
+ * 키워드가 추가된 채용 정보 인터페이스 (검색용)
+ */
+export interface KeywordJobInfo extends JobInfo {
+  keyword?: string;
+}
+
+/**
  * 스크래퍼 설정 인터페이스
  */
 export interface ScraperConfig {
