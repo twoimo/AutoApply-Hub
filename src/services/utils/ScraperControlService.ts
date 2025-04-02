@@ -46,7 +46,7 @@ export default class ScraperControlService extends ScraperServiceABC {
   }
 
   /**
-   * 한국 시간 주중 오후 5시에 스크래핑 작업 스케줄링
+   * 매시간 랜덤한 시간에 스크래핑 작업 스케줄링
    * @param config 스크래퍼 설정
    * @returns 스케줄러 시작 여부
    */
@@ -58,12 +58,22 @@ export default class ScraperControlService extends ScraperServiceABC {
     }
     
     try {
-      // 한국 시간 (KST) 기준 오후 5시 (17:00) 주중에만 실행
+      // 15~60분 사이의 랜덤한 분 생성
+      const randomMinute = Math.floor(Math.random() * 46) + 15; // 15~60 사이 랜덤분
+      
+      // 매시간 randomMinute분에 실행, 주중에만 실행
       // 크론 표현식: 분 시 일 월 요일
-      this.cronJob = cron.schedule('0 17 * * 1-5', async () => {
+      this.cronJob = cron.schedule(`${randomMinute} * * * 1-5`, async () => {
         const logger = this.factory.getLogger();
         
-        logger.log('스케줄된 스크래핑 작업이 시작됩니다.', 'info');
+        // 현재 시간 정보 가져오기 (한국 시간)
+        const now = new Date();
+        const hour = now.getHours();
+        const minute = now.getMinutes();
+        const amPm = hour >= 12 ? '오후' : '오전';
+        const hour12 = hour % 12 || 12; // 12시간제로 변환
+        
+        logger.log(`[${amPm} ${hour12}시 ${minute}분] 스케줄된 스크래핑 작업이 시작됩니다.`, 'info');
         
         await this.runScheduledScraping(config);
       }, {
@@ -72,7 +82,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       });
       
       const logger = this.factory.getLogger();
-      logger.log('스크래핑 작업이 한국 시간 주중 오후 5시(17:00)에 실행되도록 스케줄링되었습니다.', 'success');
+      logger.log(`스크래핑 작업이 한국 시간 주중 매시간 ${randomMinute}분에 실행되도록 스케줄링되었습니다.`, 'success');
       
       return true;
     } catch (error) {
@@ -90,20 +100,32 @@ export default class ScraperControlService extends ScraperServiceABC {
     const logger = this.factory.getLogger();
     
     try {
-      logger.log('스케줄된 사람인 채용 정보 스크래핑을 시작합니다...', 'info');
+      // 현재 시간 정보 가져오기 (한국 시간)
+      const now = new Date();
+      const hour = now.getHours();
+      const amPm = hour >= 12 ? '오후' : '오전';
+      const hour12 = hour % 12 || 12; // 12시간제로 변환
+      
+      logger.log(`[${amPm} ${hour12}시] 스케줄된 사람인 채용 정보 스크래핑을 시작합니다...`, 'info');
       
       // 중복 URL 체크 후 스크래핑 실행
       const jobs = await this.openSaraminWithDuplicateCheck(config);
       
-      logger.log(`스케줄된 스크래핑 완료: ${jobs.length}개 새 채용 공고 수집됨`, 'success');
+      logger.log(`[${amPm} ${hour12}시] 스케줄된 스크래핑 완료: ${jobs.length}개 새 채용 공고 수집됨`, 'success');
       
       // 스크래핑 완료 후 자동 매칭 실행
-      logger.log('스케줄된 스크래핑 완료 후 자동 매칭을 시작합니다...', 'info');
+      logger.log(`[${amPm} ${hour12}시] 스케줄된 스크래핑 완료 후 자동 매칭을 시작합니다...`, 'info');
       
       await this.runAutoJobMatching();
       
     } catch (error) {
-      logger.log(`스케줄된 스크래핑 작업 실행 중 오류: ${error}`, 'error');
+      // 현재 시간 정보 가져오기 (한국 시간) - 오류 발생 시에도 시간 표시
+      const now = new Date();
+      const hour = now.getHours();
+      const amPm = hour >= 12 ? '오후' : '오전';
+      const hour12 = hour % 12 || 12; // 12시간제로 변환
+      
+      logger.log(`[${amPm} ${hour12}시] 스케줄된 스크래핑 작업 실행 중 오류: ${error}`, 'error');
     }
   }
 

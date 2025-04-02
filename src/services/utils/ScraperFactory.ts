@@ -157,6 +157,40 @@ export class ScraperFactory {
     };
   }
 
+  /**
+   * 전체 채용공고 조회
+   * @param limit 반환할 채용공고 수
+   * @param page 페이지 번호
+   * @returns 전체 채용공고 데이터
+   */
+  public getAllJobs(limit: number, page: number): Promise<any> {
+    try {
+      // JobRepository에서 전체 채용공고 조회
+      return Promise.resolve().then(async () => {
+        this.logger.log(`전체 채용공고 조회 요청 (페이지: ${page}, 항목 수: ${limit})`, 'info');
+        
+        const jobs = await this.jobRepository.getAllJobs(limit, page);
+        const result = {
+          success: true,
+          jobs: jobs,
+          page: page,
+          limit: limit,
+          total: jobs.length
+        };
+        
+        this.logger.log(`전체 채용공고 ${jobs.length}개 조회 결과 반환 완료`, 'success');
+        return result;
+      });
+    } catch (error) {
+      this.logger.log(`전체 채용공고 조회 중 오류 발생: ${error}`, 'error');
+      return Promise.resolve({
+        success: false,
+        message: '전체 채용공고 조회 중 오류가 발생했습니다.',
+        error: String(error)
+      });
+    }
+  }
+
   // 각 서비스 획득 메서드 - 읽기 전용으로 변경하여 불변성 보장
   public getLogger(): LoggerService {
     return this.logger;

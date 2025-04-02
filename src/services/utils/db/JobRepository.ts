@@ -209,10 +209,75 @@ export class JobRepository {
         jobTitle: job.job_title,
         jobLocation: job.job_location || '',
         companyType: job.company_type || '',
-        url: job.job_url || ''
+        url: job.job_url || '',
+        deadline: job.deadline || '', // 추가: 마감일 정보 포함
+        jobSalary: job.job_salary || '', // 추가: 급여 정보 포함
+        jobType: job.job_type || '', // 추가: 직무 유형 포함
+        employmentType: job.employment_type || '' // 추가: 고용 형태 포함
       }));
     } catch (error) {
       this.logger.log(`추천 채용 공고 조회 실패: ${error}`, 'error');
+      return [];
+    }
+  }
+
+  /**
+   * 전체 채용 공고 가져오기
+   * @param limit 페이지당 항목 수
+   * @param page 페이지 번호
+   * @returns 채용 정보 배열
+   */
+  public async getAllJobs(limit: number = 100, page: number = 1): Promise<any[]> {
+    try {
+      const offset = (page - 1) * limit;
+      
+      // 페이지네이션 적용하여 전체 채용공고 조회 - 모든 컬럼 반환
+      const jobs = await CompanyRecruitmentTable.findAll({
+        order: [['scraped_at', 'DESC']],
+        limit,
+        offset,
+        raw: true
+      });
+      
+      // 추천 채용공고 API와 유사한 로그 출력 추가
+      this.logger.log(`${jobs.length}개의 전체 채용 공고를 조회했습니다. (페이지: ${page})`, 'info');
+      if (jobs.length === 0) {
+        this.logger.log(`페이지 ${page}에 채용 공고가 없습니다.`, 'warning');
+      }
+      
+      this.logger.logVerbose(`전체 채용 공고 ${page} 페이지 (${jobs.length}개) 조회 완료`);
+      
+      // 테이블의 모든 컬럼을 그대로 반환하면서 클라이언트에 친숙한 필드명 추가
+      return jobs.map(job => ({
+        // 원본 DB 컬럼 유지
+        ...job,
+        
+        // 클라이언트 친화적인 필드명 추가 (기존 호환성 유지)
+        id: job.id,
+        companyName: job.company_name,
+        jobTitle: job.job_title,
+        jobLocation: job.job_location || '',
+        jobType: job.job_type || '',
+        jobSalary: job.job_salary || '',
+        deadline: job.deadline || '',
+        employmentType: job.employment_type || '',
+        url: job.job_url || '',
+        companyType: job.company_type || '',
+        jobDescription: job.job_description || '',
+        descriptionType: 'text',
+        scrapedAt: job.scraped_at ? job.scraped_at.toISOString() : new Date().toISOString(),
+        matchScore: job.match_score,
+        isRecommended: job.is_recommended,
+        matchReason: job.match_reason || '',
+        isApplied: job.is_applied,
+        isGptChecked: job.is_gpt_checked,
+        strength: job.strength || '',
+        weakness: job.weakness || '',
+        createdAt: job.created_at ? job.created_at.toISOString() : null,
+        updatedAt: job.updated_at ? job.updated_at.toISOString() : null
+      }));
+    } catch (error) {
+      this.logger.log(`전체 채용 공고 조회 중 오류: ${error}`, 'error');
       return [];
     }
   }

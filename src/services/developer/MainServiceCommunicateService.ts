@@ -75,6 +75,24 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   }
   
   /**
+   * 전체 채용공고 조회 API
+   * @httpMethod get
+   * @path /all-jobs
+   * @objectParams {number} limit - 반환할 채용공고 수 (기본값: 5000)
+   * @objectParams {number} page - 페이지 번호 (기본값: 1)
+   */
+  public async getAllJobs({
+    limit = JobMatchingConstants.DEFAULT_MATCH_LIMIT,
+    page = 1
+  }: {
+    limit?: number;
+    page?: number;
+  }): Promise<any> {
+    await this.ensureInitialized();
+    return await this.factory.getAllJobs(limit, page);
+  }
+  
+  /**
    * 사람인 자동 지원 API
    * @httpMethod get
    * @path /apply-saramin-jobs
