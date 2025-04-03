@@ -1,106 +1,99 @@
-# AutoApply-Hub
+# Wheel Micro-Service Boilerplate Study
 
-## 프로젝트 개요
-구인구직 사이트(사람인 등)를 자동으로 순회하며 설정된 조건에 맞는 회사에 이력서를 자동으로 제출하는 오픈소스 프로젝트
+## 6주차 스터디 내용 (2025.03.29)
 
-### 주요 기능
-- 구인구직 사이트 자동 크롤링
-- 맞춤형 회사 필터링
-- 이력서 자동 제출
-- 지원 이력 관리
-- 실시간 진행 상황 모니터링
+### 1. 사람인 로그인 코드 구현 (loginSaramin)
 
-## 기술 스택
+- **로그인 프로세스**:
+  - 사람인 로그인 페이지(https://www.saramin.co.kr/zf_user/auth)에 접근
+  - 실제 사용자처럼 아이디/비밀번호 필드 클릭 및 입력 후 로그인 버튼 클릭
+  - 인증 방식: (1) JWT 토큰 인증 또는 (2) 세션 기반 인증
 
-### 백엔드
-- Node.js & TypeScript
-- FastAPI (Python 3.9)
-- MySQL & Sequelize ORM
-- OpenAI GPT API
-- Mistral API
+- **구현 방법**:
+  - `services/utils/ScraperControlService.ts` 내에 `loginSaramin` 메소드 구현
+  - 로그인 후 `page` 객체 반환 (로그인 인증 정보 유지를 위함)
+  - 인증 정보를 활용하여 `MainServiceCommunicateService`에서 API 작업 수행
 
-### 프론트엔드
-- React & Next.js
-- TypeScript
+- **실무 활용**:
+  - 실제 업무에서는 request/response 분석을 통해 axios 등의 라이브러리로 구현
+  - HTTP 통신 규약 준수 (GET, POST, PUT/FETCH, DELETE)
+  - 소셜 계정의 경우 기존 브라우저에서 카카오 등의 API로 연결
 
-### 개발 도구
-- Docker - 컨테이너 관리
-- DBeaver - 데이터베이스 관리
-- dbdiagram.io - ERD 설계
-- Postman - API 테스트
+### 2. 사람인 지원서 자동 접수 (writeSaraminApplication)
 
-### Node.js 주요 라이브러리
-- @qillie/wheel-common & wheel-micro-service
-- Puppeteer & Cheerio - 웹 크롤링
-- Sharp & Jimp - 이미지 처리
-- Sequelize-typescript - ORM
-- ts-node-dev - 개발 서버
+- **자동 지원 프로세스**:
+  - 채용공고 페이지에서 "입사지원" 또는 "홈페이지 지원" 버튼 식별
+  - "입사지원" 문자열 검사 후 클릭
+  - iframe 모달 처리 (HTML 코드를 가져와 iframe 링크 추출)
+  - 입사지원 버튼 클릭 및 지원 과정 자동화
 
-## 개발 환경 설정
+- **구현 방법**:
+  - 예외 처리를 위한 try-catch 구문 활용
+  - 각 단계별 함수화 (재사용 가능한 코드 모듈화)
+  - 지원 부문 등 다양한 케이스에 대한 예외 처리
 
-### 1. 필수 도구 설치
-- Docker Desktop
-- Node.js & npm
-- DBeaver Community Edition
-- Postman
-- OpenAI API 키
+### 3. Mistral Small AI 매칭 코드 구현
 
-### 2. 데이터베이스 설정
-```bash
-docker run --name mysql-container -e MYSQL_ROOT_PASSWORD=0000 -d -p 3306:3306 mysql:latest
-```
+- **Vector Store 없이 구현**:
+  - 기존 구현에서 결과값이 부족했던 원인 분석:
+    1. 인스트럭션 내 이력서 정보 불충분
+    2. Vector Store 부족
+    3. Vector Store 필터링으로 인한 결과 부족
 
-### 3. 프로젝트 설정
-```bash
-# 레포지토리 클론
-git clone [repository-url]
-cd wheel-micro-service-boilerplate-study
+- **개선 방법**:
+  - Vector Store 사용 대신 DB row별 프롬프팅 적용
+  - 구직자 프로필 정보와 함께 처리하여 매칭 정확도 향상
 
-# 환경 설정 파일 생성
-touch .npmrc .nvmrc .env
+### 4. 자동지원 - 지원부문 - AI 적용 (Done)
 
-# 의존성 설치
-npm install
+- **AI 기반 직무 추천**:
+  - 사용자 이력서 데이터 분석을 통한 적합 직무 자동 식별
+  - 채용공고 요구사항과 사용자 스킬 매칭 알고리즘 적용
+  - 직무 적합도 점수화 및 우선순위 추천
 
-# 환경변수 설정
-cp .env.example .env
-```
+- **구현 방법**:
+  - 이력서 키워드 추출 및 가중치 분석
+  - 채용공고 직무별 필수/우대 요건 파싱
+  - 적합도 기반 자동 선택 및 지원 진행
+  - 사용자 피드백을 통한 추천 알고리즘 지속 개선
 
-### 환경 설정 파일
+### 5. 데이터베이스 유지보수 (to-do)
 
-#### 1. .env 설정
-```bash
-NODE_ENV="development"
-# NODE_ENV="production"
-```
+- **유지보수 작업**:
+  - 데이터베이스 스키마 최적화 및 인덱싱 관리
+  - 주기적인 데이터 백업 및 복구 전략 수립
+  - 쿼리 성능 모니터링 및 개선
 
-#### 2. .npmrc 설정
-GitHub 패키지 레지스트리에서 @qillie 스코프의 패키지를 설치하기 위한 인증 토큰이 필요합니다.
-- GitHub Personal Access Token이 필요합니다
-- 패키지 읽기 권한이 부여된 토큰을 발급 받아야 합니다
+- **구현 방법**:
+  - 마이그레이션 스크립트 작성 및 자동화
+  - 데이터 정합성 검증 로직 구현
+  - 장기 미사용 데이터 아카이빙 프로세스 구축
 
-#### 3. .nvmrc 설정
-프로젝트에서 사용하는 Node.js 버전을 지정하는 파일입니다.
-- 팀원들과 동일한 Node.js 버전을 사용하기 위해 필요합니다
-- Node.js 버전 관리자(nvm)에서 사용됩니다
+## 구현 노트
 
-### 4. 애플리케이션 실행
-```bash
-# 개발 모드
-npm run dev
+- 반복적인 작업은 함수화하여 코드 재사용성 확보
+- 로그인 및 자동화 과정에서 다양한 예외상황 대비 필요
+- AI 매칭 시 충분한 데이터와 적절한 프롬프팅이 중요
 
-# 프로덕션 모드
-npm start
-```
+## 다음차 예정 스터디
 
-## 개발 가이드
+### 메이플 게임 매크로 만들기
 
-### 데이터베이스
-- ERD 설계: https://dbdiagram.io
-- DBeaver 연결 정보:
-  ```
-  Host: localhost:3306
-  Database: wheel_service
-  Username: root
-  Password: 0000
-  ```
+- **파이썬 키보드/마우스 제어**:
+  - pyautogui, pynput 라이브러리를 활용한 키보드 및 마우스 입력 자동화
+  - 키 입력 시퀀스 및 지연 시간 랜덤화 구현
+
+- **이미지 텍스트 추출, OpenCV**:
+  - 게임 화면에서 필요한 정보 인식을 위한 이미지 처리
+  - OCR(Optical Character Recognition)을 통한 텍스트 추출
+  - 템플릿 매칭을 통한 게임 오브젝트 인식
+
+- **매크로 검증 우회 방법**:
+  - 패턴 분석을 통한 게임 내 매크로 감지 시스템 이해
+  - 인간 사용자와 유사한 입력 패턴 구현
+  - 랜덤화된 딜레이 및 동작 다양화
+
+- **딥시크 로컬 설치**:
+  - 딥시크 AI 모델 로컬 환경 구축
+  - 이미지 인식 및 의사 결정을 위한 AI 활용
+  - 게임 상황 분석 및 자동 대응 구현
