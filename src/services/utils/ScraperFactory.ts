@@ -7,7 +7,7 @@ import { BrowserService } from './browser/BrowserService';
 import { JobRepository } from './db/JobRepository';
 import { SaraminScraper } from './scraper/SaraminScraper';
 import { ConfigService } from './config/ConfigService';
-import JobMatchingService, { JobMatchResult } from './ai/JobMatchingService';
+import JobMatchingService from './ai/JobMatchingService';
 
 // 환경 변수 로드
 dotenv.config();
@@ -20,24 +20,28 @@ export class ScraperFactory {
   private static instance: ScraperFactory;
   private readonly tempDir: string;
   
-  // 서비스 인스턴스
-  private logger: LoggerService;
-  private imageProcessor: ImageProcessor;
-  private ocrService: OcrService;
-  private browserService: BrowserService;
-  private jobRepository: JobRepository;
-  private saraminScraper: SaraminScraper;
-  private configService: ConfigService;
+  // 서비스 인스턴스 - readonly로 불변성 보장
+  private readonly logger: LoggerService;
+  private readonly imageProcessor: ImageProcessor;
+  private readonly ocrService: OcrService;
+  private readonly browserService: BrowserService;
+  private readonly jobRepository: JobRepository;
+  private readonly saraminScraper: SaraminScraper;
+  private readonly configService: ConfigService;
   private matchingService: JobMatchingService | null = null;
-  private verboseLogging: boolean = false;
+  
+  // 초기화 상태 추적
+  private isInitializing: boolean = false;
+  private initializePromise: Promise<void> | null = null;
 
   private constructor() {
+    // 임시 디렉토리 경로 설정
     this.tempDir = path.join(process.cwd(), 'temp');
     
     // 로깅 서비스 초기화
     this.logger = new LoggerService(true);
     
-    // 각 서비스 초기화
+    // 각 서비스 초기화 - 생성자에서는 동기 초기화만 수행
     this.imageProcessor = new ImageProcessor(this.tempDir, this.logger);
     this.ocrService = new OcrService(process.env.MISTRAL_API_KEY, this.logger, this.imageProcessor);
     this.browserService = new BrowserService(this.logger);
@@ -65,36 +69,50 @@ export class ScraperFactory {
   }
 
   /**
-   * 모든 서비스 초기화
+   * 모든 서비스 초기화 - 동시 호출 방지 최적화
    */
   public async initializeServices(): Promise<void> {
-    try {
-      await this.initializeMatchingService();
-    } catch (error) {
-      this.logger.log(`서비스 초기화 중 오류 발생: ${error}`, 'error');
+    // 이미 초기화 중이면 진행 중인 프로미스 반환
+    if (this.isInitializing && this.initializePromise) {
+      return this.initializePromise;
     }
+    
+    // 초기화 중으로 상태 변경
+    this.isInitializing = true;
+    
+    // 초기화 프로미스 생성 및 저장
+    this.initializePromise = (async () => {
+      try {
+        // 매칭 서비스가 이미 초기화되었으면 건너뜀
+        if (!this.matchingService) {
+          await this.initializeMatchingService();
+        }
+      } catch (error) {
+        this.logger.log(`서비스 초기화 중 오류 발생: ${error}`, 'error');
+      } finally {
+        // 초기화 완료 상태로 변경
+        this.isInitializing = false;
+      }
+    })();
+    
+    return this.initializePromise;
   }
 
   /**
-   * 매칭 서비스 초기화
+   * 매칭 서비스 초기화 - 최적화됨
    */
   public async initializeMatchingService(): Promise<void> {
     try {
-      // 환경 변수를 ConfigService에서 가져옴
-      const mistralApiKey = this.configService.getMistralApiKey();
-      
-      if (!mistralApiKey) {
-        throw new Error('Mistral API 키가 설정되지 않았습니다.');
+      // 이미 초기화되었으면 건너뜀 (중복 작업 방지)
+      if (this.matchingService) {
+        return;
       }
       
-      // JobMatchingService는 매개변수를 받지 않음
+      // 매칭 서비스 초기화
       this.matchingService = new JobMatchingService();
-      
-      // initialize 메서드는 존재하지 않으므로 제거
       this.logger.log('채용공고 매칭 서비스 초기화 완료', 'success');
     } catch (error) {
       this.logger.log(`채용공고 매칭 서비스 초기화 실패: ${error}`, 'error');
-      // 초기화 실패 시 null로 설정하여 재시도 가능하게 함
       this.matchingService = null;
     }
   }
@@ -103,39 +121,35 @@ export class ScraperFactory {
    * 로깅 상세 모드 설정
    */
   public setVerboseLogging(verbose: boolean): void {
-    this.verboseLogging = verbose;
     this.logger.setVerbose(verbose);
   }
 
   /**
-   * 채용공고 매칭 실행
+   * 채용공고 매칭 실행 - 성능 개선
    */
-  public async matchJobs(limit: number, matchLimit: number) {
+  public async matchJobs(limit: number, matchLimit: number): Promise<any> {
+    // 매칭 서비스가 없으면 초기화 시도
     if (!this.matchingService) {
-      return {
-        success: false,
-        message: '매칭 서비스가 초기화되지 않았습니다.'
-      };
+      await this.initializeMatchingService();
+      
+      // 초기화 후에도 없으면 오류 반환
+      if (!this.matchingService) {
+        return {
+          success: false,
+          message: '매칭 서비스가 초기화되지 않았습니다.'
+        };
+      }
     }
-    // executeJobMatching 대신 matchJobs 사용
-    return await this.matchingService.matchJobs({
-      limit: limit,
-      matchLimit: matchLimit
-    });
+    
+    // 매개변수 직접 전달로 성능 향상
+    return await this.matchingService.matchJobs({ limit, matchLimit });
   }
 
   /**
-   * 추천 채용공고 조회
+   * 추천 채용공고 조회 - 최적화
    */
-  public async getRecommendedJobs(limit: number) {
-    if (!this.matchingService) {
-      return {
-        success: false,
-        message: '매칭 서비스가 초기화되지 않았습니다.'
-      };
-    }
-    // JobMatchingService에 getRecommendedJobs 메서드가 없으므로 수정 필요
-    // 현재 JobMatchingService에서 가능한 메서드를 사용
+  public async getRecommendedJobs(limit: number): Promise<any> {
+    // 바로 JobRepository 사용 (항상 초기화되어 있음)
     const matchResult = await this.jobRepository.getRecommendedJobs(limit);
     return {
       success: true,
@@ -143,7 +157,41 @@ export class ScraperFactory {
     };
   }
 
-  // 각 서비스 획득 메서드
+  /**
+   * 전체 채용공고 조회
+   * @param limit 반환할 채용공고 수
+   * @param page 페이지 번호
+   * @returns 전체 채용공고 데이터
+   */
+  public getAllJobs(limit: number, page: number): Promise<any> {
+    try {
+      // JobRepository에서 전체 채용공고 조회
+      return Promise.resolve().then(async () => {
+        this.logger.log(`전체 채용공고 조회 요청 (페이지: ${page}, 항목 수: ${limit})`, 'info');
+        
+        const jobs = await this.jobRepository.getAllJobs(limit, page);
+        const result = {
+          success: true,
+          jobs: jobs,
+          page: page,
+          limit: limit,
+          total: jobs.length
+        };
+        
+        this.logger.log(`전체 채용공고 ${jobs.length}개 조회 결과 반환 완료`, 'success');
+        return result;
+      });
+    } catch (error) {
+      this.logger.log(`전체 채용공고 조회 중 오류 발생: ${error}`, 'error');
+      return Promise.resolve({
+        success: false,
+        message: '전체 채용공고 조회 중 오류가 발생했습니다.',
+        error: String(error)
+      });
+    }
+  }
+
+  // 각 서비스 획득 메서드 - 읽기 전용으로 변경하여 불변성 보장
   public getLogger(): LoggerService {
     return this.logger;
   }

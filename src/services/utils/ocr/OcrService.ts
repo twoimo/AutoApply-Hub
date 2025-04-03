@@ -114,11 +114,30 @@ export class OcrService {
       if (attempt < maxRetries - 1) {
         this.logger.log(`잘못된 이미지 URL, data URL 변환 시도...`, 'warning');
         try {
+          // 이미지가 존재하는지 먼저 확인 (ImageProcessor에서 이미 체크되지만 명시적으로 처리)
+          if (imageUrl.includes('//upload/') && (
+              imageUrl.includes('404') || 
+              error.message.includes('not found') || 
+              error.message.includes('404')
+          )) {
+            this.logger.log(`이미지가 존재하지 않는 것으로 판단됨 (404). 재시도 중단`, 'warning');
+            throw new Error('이미지를 찾을 수 없음 (404)');
+          }
+          
           const dataUrl = await this.imageProcessor.resizeImageIfNeeded(imageUrl);
+          
+          // 변환된 URL이 원본과 같거나 비어있으면 재시도 중단
+          if (!dataUrl || dataUrl === imageUrl) {
+            this.logger.log(`이미지 변환 실패, 재시도 중단`, 'warning');
+            throw new Error('이미지 변환 실패');
+          }
+          
           // 다음 시도에서 data URL 사용
           return await this.processImageWithOCR(dataUrl);
-        } catch (conversionError) {
-          throw error; // 변환 실패시 원래 오류 발생
+        } catch (conversionError: any) {
+          this.logger.log(`이미지 변환 중 오류: ${conversionError.message}. 추가 재시도 중단`, 'warning');
+          // 변환 실패 시 더 이상 재시도하지 않고 오류 전파
+          throw new Error(`이미지 처리 실패: ${conversionError.message || '알 수 없는 오류'}`);
         }
       }
     }

@@ -46,7 +46,7 @@ export default class ScraperControlService extends ScraperServiceABC {
   }
 
   /**
-   * 한국 시간 주중 오후 5시에 스크래핑 작업 스케줄링
+   * 매시간 랜덤한 시간에 스크래핑 작업 스케줄링
    * @param config 스크래퍼 설정
    * @returns 스케줄러 시작 여부
    */
@@ -58,12 +58,22 @@ export default class ScraperControlService extends ScraperServiceABC {
     }
     
     try {
-      // 한국 시간 (KST) 기준 오후 5시 (17:00) 주중에만 실행
+      // 15~60분 사이의 랜덤한 분 생성
+      const randomMinute = Math.floor(Math.random() * 46) + 15; // 15~60 사이 랜덤분
+      
+      // 매시간 randomMinute분에 실행, 주중에만 실행
       // 크론 표현식: 분 시 일 월 요일
-      this.cronJob = cron.schedule('0 17 * * 1-5', async () => {
+      this.cronJob = cron.schedule(`${randomMinute} * * * 1-5`, async () => {
         const logger = this.factory.getLogger();
         
-        logger.log('스케줄된 스크래핑 작업이 시작됩니다.', 'info');
+        // 현재 시간 정보 가져오기 (한국 시간)
+        const now = new Date();
+        const hour = now.getHours();
+        const minute = now.getMinutes();
+        const amPm = hour >= 12 ? '오후' : '오전';
+        const hour12 = hour % 12 || 12; // 12시간제로 변환
+        
+        logger.log(`[${amPm} ${hour12}시 ${minute}분] 스케줄된 스크래핑 작업이 시작됩니다.`, 'info');
         
         await this.runScheduledScraping(config);
       }, {
@@ -72,7 +82,7 @@ export default class ScraperControlService extends ScraperServiceABC {
       });
       
       const logger = this.factory.getLogger();
-      logger.log('스크래핑 작업이 한국 시간 주중 오후 5시(17:00)에 실행되도록 스케줄링되었습니다.', 'success');
+      logger.log(`스크래핑 작업이 한국 시간 주중 매시간 ${randomMinute}분에 실행되도록 스케줄링되었습니다.`, 'success');
       
       return true;
     } catch (error) {
@@ -90,20 +100,32 @@ export default class ScraperControlService extends ScraperServiceABC {
     const logger = this.factory.getLogger();
     
     try {
-      logger.log('스케줄된 사람인 채용 정보 스크래핑을 시작합니다...', 'info');
+      // 현재 시간 정보 가져오기 (한국 시간)
+      const now = new Date();
+      const hour = now.getHours();
+      const amPm = hour >= 12 ? '오후' : '오전';
+      const hour12 = hour % 12 || 12; // 12시간제로 변환
+      
+      logger.log(`[${amPm} ${hour12}시] 스케줄된 사람인 채용 정보 스크래핑을 시작합니다...`, 'info');
       
       // 중복 URL 체크 후 스크래핑 실행
       const jobs = await this.openSaraminWithDuplicateCheck(config);
       
-      logger.log(`스케줄된 스크래핑 완료: ${jobs.length}개 새 채용 공고 수집됨`, 'success');
+      logger.log(`[${amPm} ${hour12}시] 스케줄된 스크래핑 완료: ${jobs.length}개 새 채용 공고 수집됨`, 'success');
       
       // 스크래핑 완료 후 자동 매칭 실행
-      logger.log('스케줄된 스크래핑 완료 후 자동 매칭을 시작합니다...', 'info');
+      logger.log(`[${amPm} ${hour12}시] 스케줄된 스크래핑 완료 후 자동 매칭을 시작합니다...`, 'info');
       
       await this.runAutoJobMatching();
       
     } catch (error) {
-      logger.log(`스케줄된 스크래핑 작업 실행 중 오류: ${error}`, 'error');
+      // 현재 시간 정보 가져오기 (한국 시간) - 오류 발생 시에도 시간 표시
+      const now = new Date();
+      const hour = now.getHours();
+      const amPm = hour >= 12 ? '오후' : '오전';
+      const hour12 = hour % 12 || 12; // 12시간제로 변환
+      
+      logger.log(`[${amPm} ${hour12}시] 스케줄된 스크래핑 작업 실행 중 오류: ${error}`, 'error');
     }
   }
 
@@ -771,11 +793,12 @@ export default class ScraperControlService extends ScraperServiceABC {
             continue;
           }
           
-          // 7. 지원하기 버튼 텍스트 확인 - "홈페이지 지원" 버튼은 처리하지 않음
-          if (applyButtonInfo.text === '홈페이지 지원') {
-            logger.log(`홈페이지 지원 방식의 채용공고입니다. 건너뜁니다.`, 'warning');
+          // 7. 입사지원 버튼 텍스트 확인 - "홈페이지 지원"과 "지원마감" 버튼은 처리하지 않음
+          if (applyButtonInfo.text === '홈페이지 지원' || applyButtonInfo.text === '지원마감') {
+            const reason = applyButtonInfo.text === '홈페이지 지원' ? '홈페이지 지원 방식' : '지원 마감됨';
+            logger.log(`${reason}의 채용공고입니다. 건너뜁니다.`, 'warning');
             failedCount++;
-            details.push(`[스킵] ${companyName} - ${jobTitle}: 홈페이지 지원 방식`);
+            details.push(`[스킵] ${companyName} - ${jobTitle}: ${reason}`);
             continue;
           }
           
@@ -835,15 +858,174 @@ export default class ScraperControlService extends ScraperServiceABC {
           await page.goto(fullIframeUrl);
           await new Promise(resolve => setTimeout(resolve, 2000));
           
-          // 14. 모달 내 지원하기 버튼 찾기
+          // 13-1. 지원부문 선택 드롭다운 확인 및 처리
+          const hasRoleSelection = await browserService.evaluate<boolean>(page, () => {
+            // 지원부문 드롭다운 확인 (box_choice 내 select 요소 찾기)
+            return document.querySelector('#inpApply, select[id*="Apply"], .box_choice select') !== null;
+          });
+          
+          if (hasRoleSelection) {
+            logger.log('지원부문 선택 드롭다운을 발견했습니다.', 'info');
+            
+            // 지원 가능한 직무 목록 추출
+            const roleOptions = await browserService.evaluate<{value: string, text: string}[]>(page, () => {
+              const selectElement = document.querySelector('#inpApply, select[id*="Apply"], .box_choice select') as HTMLSelectElement;
+              if (!selectElement) return [];
+              
+              return Array.from(selectElement.options).map(option => ({
+                value: option.value,
+                text: option.textContent?.trim() || ''
+              }));
+            }) || []; // 기본값으로 빈 배열 설정
+            
+            if (roleOptions && roleOptions.length > 0) {
+              logger.log(`총 ${roleOptions.length}개 지원 가능 직무 옵션이 있습니다:`, 'info');
+              roleOptions.forEach((option, index) => {
+                logger.log(`  ${index + 1}. ${option.text} (값: ${option.value})`, 'info');
+              });
+              
+              // 옵션이 1개뿐이면 AI 분석 건너뛰기
+              if (roleOptions.length === 1) {
+                logger.log(`직무 옵션이 1개뿐이므로 '${roleOptions[0].text}'를 자동 선택합니다.`, 'info');
+                // 단일 옵션은 이미 선택되어 있을 가능성이 높으므로 별도 처리 불필요
+              } else {
+                // 여러 옵션이 있는 경우에만 Mistral AI 활용
+                try {
+                  logger.log('Mistral AI로 적합한 직무 분석 중...', 'info');
+                  
+                  // 구직자 프로필 가져오기
+                  const candidateProfileModule = await import('./ai/CandidateProfile');
+                  const candidateProfile = candidateProfileModule.getDefaultCandidateProfile();
+                  const formattedProfile = candidateProfileModule.formatCandidateProfile(candidateProfile);
+                  
+                  // Mistral AI 서비스 초기화
+                  const configService = this.factory.getConfigService();
+                  const mistralApiKey = configService.getMistralApiKey();
+                  
+                  if (!mistralApiKey) {
+                    logger.log('Mistral API 키가 없어 자동 직무 선택을 건너뜁니다.', 'warning');
+                  } else {
+                    const mistralService = new (await import('./ai/MistralAIService')).MistralAIService(
+                      mistralApiKey, 
+                      logger
+                    );
+                    
+                    // 직무 매칭을 위한 프롬프트 생성
+                    await mistralService.initializeChat();
+                    const prompt = `
+                                    구직자 프로필:
+                                    ${formattedProfile}
+
+                                    다음 지원 가능한 직무 목록 중에서 구직자의 경력, 기술, 경험에 가장 적합한 직무를 하나만 선택해 주세요:
+                                    ${roleOptions.map((opt, idx) => `${idx + 1}. ${opt.text}`).join('\n')}
+
+                                    다음 JSON 형식으로 응답해주세요:
+                                    {
+                                      "selectedIndex": 직무 선택 인덱스(1부터 시작),
+                                      "reason": "선택 이유 설명"
+                                    }`;
+                    
+                    // 비공개 메서드 sendMessage 대신 공개 API 사용
+                    // (채팅 초기화 후 완료 메서드 사용)
+                    const response = await mistralService.matchJobsWithProfile([{
+                      id: 0,
+                      companyName: companyName,
+                      jobTitle: jobTitle,
+                      jobType: "",
+                      jobDescription: prompt,
+                      jobLocation: "",
+                      jobSalary: "",
+                      deadline: "",
+                      employmentType: ""
+                    }], ""); // 빈 문자열은 응답만 받기 위한 용도
+                    
+                    // 응답 파싱 - 결과가 텍스트일 수도 있고 객체일 수도 있음
+                    let responseText = "";
+                    if (typeof response === 'string') {
+                      responseText = response;
+                    } else if (Array.isArray(response) && response.length > 0) {
+                      // 첫 번째 항목의 reason 필드 사용
+                      responseText = response[0].reason || JSON.stringify(response[0]);
+                    } else if (response && typeof response === 'object') {
+                      responseText = JSON.stringify(response);
+                    }
+                    
+                    // 응답 파싱
+                    try {
+                      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                      if (jsonMatch) {
+                        const result = JSON.parse(jsonMatch[0]);
+                        
+                        if (result && typeof result.selectedIndex === 'number') {
+                          const selectedIndex = result.selectedIndex - 1; // 0-based 인덱스로 변환
+                          
+                          if (selectedIndex >= 0 && selectedIndex < roleOptions.length) {
+                            const selectedOption = roleOptions[selectedIndex];
+                            
+                            logger.log(`AI 추천 직무: ${selectedOption.text}`, 'success');
+                            logger.log(`추천 이유: ${result.reason}`, 'info');
+                            
+                            // 드롭다운에서 직무 선택
+                            await page.select(
+                              '#inpApply, select[id*="Apply"], .box_choice select', 
+                              selectedOption.value
+                            );
+                            logger.log('선택된 직무가 드롭다운에서 설정되었습니다.', 'success');
+                            
+                            // 변경사항이 적용되도록 잠시 대기
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                          } else {
+                            logger.log(`선택된 인덱스(${result.selectedIndex})가 유효 범위를 벗어났습니다. 첫 번째 옵션 사용.`, 'warning');
+                          }
+                        } else {
+                          logger.log('AI 응답에서 유효한 선택 인덱스를 찾을 수 없습니다. 첫 번째 옵션 사용.', 'warning');
+                        }
+                      } else {
+                        logger.log('AI 응답에서 JSON 형식을 찾을 수 없습니다. 첫 번째 옵션 사용.', 'warning');
+                      }
+                    } catch (parseError) {
+                      logger.log(`AI 응답 파싱 오류: ${parseError}. 첫 번째 옵션 사용.`, 'warning');
+                    }
+                  }
+                } catch (aiError) {
+                  logger.log(`직무 매칭 중 오류: ${aiError}. 첫 번째 옵션을 자동 선택합니다.`, 'error');
+                }
+              }
+            } else {
+              logger.log('지원부문 선택 드롭다운이 비어 있습니다.', 'warning');
+            }
+          } else {
+            logger.log('지원부문 선택 드롭다운이 없습니다. 단일 직무 지원으로 계속 진행합니다.', 'info');
+          }
+          
+          // 14. 모달 내 입사지원 버튼 찾기 (개선된 버전)
           const modalApplyButton = await browserService.evaluate<string>(page, () => {
-            // 가능한 여러 선택자 시도
+            // 입사지원 버튼 유형 1: area_btns 내의 버튼 (현재 HTML 구조에 맞춤)
+            const areaBtnsButtons = document.querySelectorAll('.area_btns button');
+            for (const btn of Array.from(areaBtnsButtons)) {
+              if (btn.textContent?.includes('입사지원')) {
+                btn.setAttribute('data-modal-apply-button', 'true');
+                return '[data-modal-apply-button="true"]';
+              }
+            }
+            
+            // 입사지원 버튼 유형 2: 픽셀 이벤트 속성이 있는 버튼
+            const pixelEventButtons = document.querySelectorAll('button[data-kakao_pixel_event], button[data-meta_pixel_event]');
+            for (const btn of Array.from(pixelEventButtons)) {
+              if (btn.textContent?.includes('입사지원') || 
+                  btn.getAttribute('data-kakao_pixel_event')?.includes('입사지원')) {
+                btn.setAttribute('data-modal-apply-button', 'true');
+                return '[data-modal-apply-button="true"]';
+              }
+            }
+            
+            // 기존 방식: 가능한 여러 선택자 시도
             const possibleSelectors = [
               '.area_btns.button button', 
               '.area_btns button', 
               '.button_apply',
-              'button:contains("지원하기")',
-              'button:contains("입사지원")'
+              'button.btn.kakao_pixel_event',
+              '.wrap_global_apply button.btn'
             ];
             
             // 각 선택자에 맞는 버튼 찾기

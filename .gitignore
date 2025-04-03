@@ -111,3 +111,4 @@ build-pre/
 .npmrc
 .nvmrc
 .env.dev
+simple-api-connector

@@ -24,7 +24,7 @@ export const getSystemInstructions = (): string => {
   * 보안 취약점 분석 및 블록체인 기술 연구
   * 어종 판별 AI 웹 서비스 개발 (YOLOv11 활용)
   * CCTV 시스템 개발 (AI 이상행동 탐지)
-- 희망 분야: AI/ML 개발, 컴퓨터 비전, 보안, 웹 서비스 개발, 게임 이상탐지, 게임 보안 기술 지원, IDC 서버 운영
+- 희망 분야: AI/ML 개발, 컴퓨터 비전, 보안, 웹 서비스 개발, 게임 이상탐지, 게임 보안 기술 지원, IDC 서버 운영, 인프라 운영 관리
 - 선호 기업 규모: 중견기업 이상
 - 관심 산업: 금융, 방산, 게임, AI 관련 기업
 - 거주지: 경기도 양주시
@@ -51,7 +51,7 @@ export const getSystemInstructions = (): string => {
 평가 기준 (세부):
 1. 직무 적합성 (40점)
    - jobTitle 또는 jobDescription에 다음 키워드 중 포함 개수에 따라 점수 부여:
-     * 최우선(각 10점): AI, Machine Learning, Deep Learning, Computer Vision, 인공지능, 머신러닝, 딥러닝, 컴퓨터 비전, 
+     * 최우선(각 10점): AI, Machine Learning, Deep Learning, Computer Vision, Infra, 인공지능, 머신러닝, 딥러닝, 컴퓨터 비전, 인프라
      * 우선(각 8점): Blockchain, Data Analysis, Data Science, Research, Development, 블록체인, 데이터 분석, 데이터 사이언스, 연구, 개발
    - 최대 40점까지만 인정
 
@@ -74,10 +74,10 @@ export const getSystemInstructions = (): string => {
 
 4. 지역 적합성 (10점)
    - 재택/원격/하이브리드: 10점
-   - 경기 북부(양주, 의정부, 동두천): 10점
-   - 서울 북부(노원, 도봉): 9점
-   - 서울(그 외 지역): 7점
-   - 경기도(그 외 지역): 6점
+   - 서울(그 외 지역): 10점
+   - 경기도(그 외 지역): 10점
+   - 경기 북부(양주, 의정부, 동두천): 7점
+   - 서울 북부(노원, 도봉): 7점
    - 인천: 5점
    - 그 외 지역: 2점
    - 데이터가 없는 경우: 0점 (평균 점수 부여)

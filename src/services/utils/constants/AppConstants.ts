@@ -59,14 +59,6 @@ export const LoggingConstants = {
  * 채용 매칭 관련 상수
  */
 export const JobMatchingConstants = {
-  // 적극 지원 권장 점수 기준
-  STRONGLY_RECOMMEND_SCORE: 85,
-  // 지원 권장 점수 기준
-  RECOMMEND_SCORE: 70,
-  // 검토 후 지원 점수 기준
-  CONSIDER_SCORE: 55,
-  // 기본 채용공고 조회 개수 (매칭되지 않은 모든 공고를 대상으로)
-  DEFAULT_JOB_LIMIT: 3000,
   // 기본 매칭 결과 개수
-  DEFAULT_MATCH_LIMIT: 3000
+  DEFAULT_MATCH_LIMIT: 5000
 };
