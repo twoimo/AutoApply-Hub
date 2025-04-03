@@ -112,3 +112,4 @@ build-pre/
 .nvmrc
 .env.dev
 simple-api-connector
+.env.prod
