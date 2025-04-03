@@ -1,7 +1,7 @@
 # 채용 정보 자동화 시스템
 
 ## 프로젝트 개요
-구인구직 사이트(사람인 등)를 자동으로 순회하며 설정된 조건에 맞는 회사에 이력서를 자동으로 제출하는 오픈소스 프로젝트
+- 구인구직 사이트(사람인 등)를 자동으로 순회하며 설정된 조건에 맞는 회사에 이력서를 자동으로 제출하는 오픈소스 프로젝트
 
 ### 주요 기능
 - 구인구직 사이트 자동 크롤링
@@ -73,12 +73,12 @@ NODE_ENV="development"
 ```
 
 #### 2. .npmrc 설정
-GitHub 패키지 레지스트리에서 @qillie 스코프의 패키지를 설치하기 위한 인증 토큰이 필요합니다.
+- GitHub 패키지 레지스트리에서 @qillie 스코프의 패키지를 설치하기 위한 인증 토큰이 필요합니다
 - GitHub Personal Access Token이 필요합니다
 - 패키지 읽기 권한이 부여된 토큰을 발급 받아야 합니다
 
 #### 3. .nvmrc 설정
-프로젝트에서 사용하는 Node.js 버전을 지정하는 파일입니다.
+- 프로젝트에서 사용하는 Node.js 버전을 지정하는 파일입니다
 - 팀원들과 동일한 Node.js 버전을 사용하기 위해 필요합니다
 - Node.js 버전 관리자(nvm)에서 사용됩니다
 
@@ -120,30 +120,33 @@ wheel-micro-service-boilerplate-study/
 ## 개발 진행 상황
 
 ### 1~2주차 스터디 내용
-개발 환경 설정 및 프로젝트 초기화 작업 위주로 진행하였습니다.
+- 개발 환경 설정 및 프로젝트 초기화 작업 위주로 진행하였습니다.
 
 ### 3주차 스터디 내용
 
 #### 1. 서비스 구조
 
 ##### 개발자 서비스
-| 서비스                          | 설명                               |
-| ------------------------------- | ---------------------------------- |
-| `MainServiceCommunicateService` | 주요 통신 및 데이터 처리 담당      |
-| `ScraperControlService`         | 웹 스크래핑 작업 제어 및 오류 처리 |
+- `MainServiceCommunicateService`: 주요 통신 및 데이터 처리 담당
+- `ScraperControlService`: 웹 스크래핑 작업 제어 및 오류 처리
 
 #### 2. OOP vs PP 비교 연구
-객체지향 프로그래밍과 절차지향 프로그래밍의 특징을 비교 분석했습니다.
+- 객체지향 프로그래밍과 절차지향 프로그래밍의 특징을 비교 분석했습니다.
 
 ##### OOP의 핵심 특징
-1. **캡슐화 (Encapsulation)**: 데이터와 메서드를 하나의 단위로 묶어 정보를 은닉
-2. **상속 (Inheritance)**: 기존 클래스 특성을 재사용하여 코드 재사용성 향상
-3. **다형성 (Polymorphism)**: 동일 인터페이스로 다양한 구현 가능
-4. **추상화 (Abstraction)**: 복잡한 시스템을 단순화하여 핵심 개념만 표현
-5. **객체간 통신**: 느슨한 결합을 통한 유연한 시스템 구조 구현
+1. **캡슐화 (Encapsulation)**
+   - 데이터와 메서드를 하나의 단위로 묶어 정보를 은닉
+2. **상속 (Inheritance)**
+   - 기존 클래스 특성을 재사용하여 코드 재사용성 향상
+3. **다형성 (Polymorphism)**
+   - 동일 인터페이스로 다양한 구현 가능
+4. **추상화 (Abstraction)**
+   - 복잡한 시스템을 단순화하여 핵심 개념만 표현
+5. **객체간 통신**
+   - 느슨한 결합을 통한 유연한 시스템 구조 구현
 
 ##### 실습 내용
-프로젝트의 두 핵심 서비스에서 OOP 원칙을 실제 적용했습니다.
+- 프로젝트의 두 핵심 서비스에서 OOP 원칙을 실제 적용했습니다.
 
 1. **MainServiceCommunicateService의 캡슐화 적용**
 ```typescript
@@ -198,8 +201,6 @@ export default class ScraperControlService extends ScraperServiceABC {
 - 🔄 코드 재사용: 공통 유틸리티 제공
 - 📈 품질 향상: 표준화된 패턴 적용
 
-`@qillie/wheel-micro-service` 프레임워크는 마이크로서비스 개발에서 개발자의 생산성과 역량을 크게 향상시킵니다:
-
 ##### 향상된 개발 효율성
 - `ScraperServiceABC`와 같은 내장 추상 클래스로 신속한 서비스 개발 기반 제공
 - `sleep`과 같은 공통 유틸리티로 기본 기능 재작성 불필요
@@ -209,7 +210,8 @@ export default class ScraperControlService extends ScraperServiceABC {
 
 #### 1. 채용공고 상세 페이지 세부 정보 추출 기법
 
-`ScraperControlService` 클래스의 `extractJobDetails` 메소드는 웹 스크래핑의 핵심 기능을 담당합니다. 이 메소드는 Puppeteer를 활용하여 채용공고 상세 페이지에서 구조화된 정보를 추출합니다.
+- `ScraperControlService` 클래스의 `extractJobDetails` 메소드는 웹 스크래핑의 핵심 기능을 담당
+- Puppeteer를 활용하여 채용공고 상세 페이지에서 구조화된 정보를 추출
 
 ```typescript
 private async extractJobDetails(page: Page, url: string, waitTime: number): Promise<JobInfo | null> {
@@ -256,54 +258,12 @@ private async extractJobDetails(page: Page, url: string, waitTime: number): Prom
    - 비정형화된 텍스트에서 날짜, 시간과 같은 특정 패턴 정보를 효율적으로 추출
    - 다양한 형식(YYYY-MM-DD, YYYY.MM.DD 등)을 처리할 수 있는 유연성
 
-#### 2. Sequelize-TypeScript ORM을 활용한 데이터 모델링
-
-`AutoApplyTable` 클래스는 Sequelize-TypeScript를 사용하여 채용공고 정보를 저장하기 위한 데이터 모델을 정의합니다.
-
-```typescript
-@Table({
-  freezeTableName: true,
-  tableName: "auto_apply_table",
-})
-export default class AutoApplyTable extends ModelABC {
-  @AllowNull(false)
-  @Column({
-    type: DataType.STRING,
-    comment: "회사명",
-  })
-  company_name!: string;
-
-  // 추가 필드 정의...
-
-  @AllowNull(true)
-  @Column({
-    type: DataType.BOOLEAN,
-    comment: "지원 여부",
-    defaultValue: false,
-  })
-  is_applied!: boolean;
-}
-```
-
-**구현 특징 및 장점:**
-
-1. **데코레이터 기반 스키마 정의**
-   - TypeScript 데코레이터를 활용해 직관적이고 선언적인 테이블/컬럼 정의
-   - 코드와 데이터베이스 스키마 간의 일관성 보장
-
-2. **강력한 타입 안전성**
-   - TypeScript의 타입 시스템을 활용하여 컴파일 타임에 데이터 타입 오류 감지
-   - 런타임 타입 불일치 오류 방지 및 개발 생산성 향상
-
-3. **메타데이터 주석**
-   - 각 필드에 comment를 통한 명확한 설명 제공
-   - 데이터베이스 스키마 자체에 메타데이터가 포함되어 문서화 효과
-
 ### 5주차 스터디 내용
 
 #### 1. 데이터베이스 연동 및 스마트 크롤링 기능 구현
 
-`ScraperControlService`가 크롤링한 데이터를 효율적으로 관리하기 위해 데이터베이스 저장 기능을 추가하고, 더 스마트한 크롤링 로직을 구현했습니다.
+- `ScraperControlService`가 크롤링한 데이터를 효율적으로 관리하기 위해 데이터베이스 저장 기능 추가
+- 더 스마트한 크롤링 로직 구현
 
 ##### 1.1 채용정보 데이터베이스 저장 구현
 
@@ -340,7 +300,7 @@ if (jobInfo) {
 
 ##### 1.2 중복 방지 스마트 크롤링 구현
 
-불필요한 리소스 낭비를 줄이기 위해 이미 수집된 채용정보는 건너뛰고, 중복이 많이 발견될 경우 크롤링을 자동으로 중단하는 로직을 구현했습니다.
+- 불필요한 리소스 낭비를 줄이기 위해 이미 수집된 채용정보는 건너뛰고, 중복이 많이 발견될 경우 크롤링을 자동으로 중단하는 로직을 구현했습니다.
 
 ```typescript
 // URL을 기준으로 중복 체크 및 스크래핑 중단 로직
@@ -376,11 +336,11 @@ if (existingJob) {
 
 #### 2. OpenAI 어시스턴트와 벡터 스토어 활용 이력서 필터링
 
-채용공고 데이터를 OpenAI의 벡터 스토어에 저장하고, 맞춤형 어시스턴트를 활용하여 이력서 필터링 프로세스를 자동화하는 방법을 구현했습니다.
+- 채용공고 데이터를 OpenAI의 벡터 스토어에 저장하고, 맞춤형 어시스턴트를 활용하여 이력서 필터링 프로세스를 자동화하는 방법을 구현했습니다.
 
 ##### 2.1 OpenAI 어시스턴트 설정 및 지시어 작성
 
-OpenAI Playground Assistants를 활용하여 다음과 같은 작업을 수행했습니다:
+- OpenAI Playground Assistants를 활용하여 다음과 같은 작업을 수행했습니다:
 
 1. **시스템 지시어 설정**
    - 어시스턴트의 역할 정의: 채용공고와 이력서 매칭 분석가
@@ -394,7 +354,7 @@ OpenAI Playground Assistants를 활용하여 다음과 같은 작업을 수행�
 
 ##### 2.2 데이터베이스 모델 확장
 
-GPT 분석 결과와 지원 상태를 추적하기 위해 데이터 모델을 확장했습니다:
+- GPT 분석 결과와 지원 상태를 추적하기 위해 데이터 모델을 확장했습니다:
 
 ```typescript
 @AllowNull(true)
