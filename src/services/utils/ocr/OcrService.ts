@@ -150,7 +150,7 @@ export class OcrService {
    */
   public async improveTextWithMistral(text: string): Promise<string> {
     if (!text || text.length < 10) return text;
-    if (!this.mistralClient) return text;
+    if (!this.mistralClient) return this.cleanJobDescription(text);
     
     const maxRetries = 3;
     let retryCount = 0;
@@ -166,15 +166,28 @@ export class OcrService {
         
         const prompt = this.buildTextImprovementPrompt(text);
 
-        const response = await this.mistralClient.chat.complete({
-          model: "mistral-small-latest", 
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.1, // 낮은 온도로 일관된 결과 유도
-          maxTokens: 4096  // 충분한 토큰 할당
-        });
+        // API 요청에 타임아웃 설정 추가
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃
 
-        const content = response?.choices?.[0]?.message?.content || text;
-        return this.processResponseContent(content);
+        try {
+          const response = await this.mistralClient.chat.complete({
+            model: "mistral-small-latest", 
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.1, // 낮은 온도로 일관된 결과 유도
+            maxTokens: 4096,  // 충분한 토큰 할당
+            // @ts-ignore - 타입 정의에 signal이 없을 수 있음
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+
+          const content = response?.choices?.[0]?.message?.content || text;
+          return this.processResponseContent(content);
+        } catch (requestError: any) {
+          clearTimeout(timeoutId);
+          throw requestError; // 재시도 로직으로 전달
+        }
       } catch (error: any) {
         if (this.isRateLimitError(error)) {
           if (retryCount < maxRetries) {
@@ -183,17 +196,29 @@ export class OcrService {
             backoffTime *= 2; // 지수 백오프
             retryCount++;
           } else {
-            this.logger.log(`최대 재시도 횟수(${maxRetries})에 도달. 원본 텍스트 반환`, 'error');
-            return text;
+            this.logger.log(`최대 재시도 횟수(${maxRetries})에 도달. 로컬 텍스트 정리 사용`, 'warning');
+            return this.cleanJobDescription(text);
+          }
+        } else if (this.isNetworkError(error)) {
+          if (retryCount < maxRetries) {
+            this.logger.log(`네트워크 연결 오류, ${backoffTime/1000}초 후 재시도...`, 'warning');
+            await sleep(backoffTime);
+            backoffTime *= 2; // 지수 백오프
+            retryCount++;
+          } else {
+            this.logger.log(`네트워크 연결 문제로 API 사용 불가. 로컬 텍스트 정리 사용`, 'warning');
+            return this.cleanJobDescription(text);
           }
         } else {
-          this.logger.log('Mistral AI 텍스트 개선 중 오류: ' + error, 'error');
-          return text; // 다른 오류는 원본 반환
+          this.logger.log('Mistral AI 텍스트 개선 중 오류: ' + error, 'warning');
+          // 다른 오류의 경우 로컬 텍스트 정리 메서드 사용하여 결과 반환
+          return this.cleanJobDescription(text);
         }
       }
     }
     
-    return text; // 모든 시도 실패 시 원본 반환
+    // 모든 시도 실패 시 로컬 텍스트 정리 사용
+    return this.cleanJobDescription(text);
   }
 
   /**
@@ -202,6 +227,28 @@ export class OcrService {
   private isRateLimitError(error: any): boolean {
     return error.statusCode === 429 || 
            (error.message && error.message.includes("rate limit"));
+  }
+  
+  /**
+   * 네트워크 관련 오류인지 확인
+   */
+  private isNetworkError(error: any): boolean {
+    const errorStr = String(error).toLowerCase();
+    return (
+      errorStr.includes('connectionerror') ||
+      errorStr.includes('connection error') ||
+      errorStr.includes('network') ||
+      errorStr.includes('fetch failed') ||
+      errorStr.includes('econnrefused') ||
+      errorStr.includes('econnreset') ||
+      errorStr.includes('timeout') ||
+      errorStr.includes('etimedout') ||
+      error.name === 'AbortError' ||
+      error.code === 'ECONNABORTED' ||
+      error.code === 'ECONNREFUSED' ||
+      error.code === 'ECONNRESET' ||
+      error.code === 'ETIMEDOUT'
+    );
   }
 
   /**
