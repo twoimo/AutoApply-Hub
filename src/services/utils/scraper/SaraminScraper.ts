@@ -269,16 +269,11 @@ export class SaraminScraper {
             }
           }
           
-          // '상시채용' 문자열 확인
-          const allText = jviewSection.textContent || "";
-          if (allText.includes("상시채용") || allText.includes("수시채용")) {
-            deadline = "상시채용";
-          }
           // 기존 방식으로도 마감일을 찾지 못했을 때 개선된 함수 사용
-          else if (!deadline) {
+          if (!deadline) {
             deadline = extractDeadline();
           }
-          
+
           // 마감일에 시작일이 포함된 경우 제거
           if (deadline.includes("시작일") || deadline.includes("접수일") || deadline.includes("시작")) {
             // 시작일과 마감일이 함께 있는 경우, 마감일만 추출 시도
