@@ -180,21 +180,38 @@ export class SaraminScraper {
             
             for (const el of allElements) {
               const text = el.textContent || "";
-              if (text.includes("마감일") || text.includes("접수기간") || 
-                  text.includes("모집기간") || text.includes("공고기간")) {
+              // 마감일 또는 종료일만 검색하여 시작일을 배제
+              if (text.includes("마감일") || text.includes("마감기한") || 
+                  text.includes("접수마감") || text.includes("종료일") ||
+                  text.includes("~") && !text.includes("시작")) {
+                
+                // 정규식 패턴 개선 - 날짜 형식을 더 정확히 매칭
                 const datePattern = /\d{4}[-./]\d{1,2}[-./]\d{1,2}/g;
                 const timePattern = /\d{1,2}:\d{2}/g;
                 
                 const dateMatches = text.match(datePattern);
-                const timeMatches = text.match(timePattern);
                 
-                if (dateMatches) {
-                  return timeMatches 
-                    ? `${dateMatches[0]} ${timeMatches[0]}`
-                    : dateMatches[0];
+                // 날짜 범위가 있는 경우(시작일~마감일) 마지막 날짜만 추출
+                if (dateMatches && dateMatches.length > 1 && text.includes("~")) {
+                  const timeMatches = text.match(timePattern);
+                  // 마감 시간이 있으면 포함
+                  if (timeMatches && timeMatches.length > 0) {
+                    return `${dateMatches[dateMatches.length-1]} ${timeMatches[timeMatches.length-1]}`;
+                  }
+                  return dateMatches[dateMatches.length-1]; // 마지막 날짜(마감일)
+                }
+                // 단일 날짜만 있는 경우, 마감일 관련 텍스트에 포함된 날짜 사용
+                else if (dateMatches && dateMatches.length > 0) {
+                  const timeMatches = text.match(timePattern);
+                  if (timeMatches && timeMatches.length > 0) {
+                    return `${dateMatches[0]} ${timeMatches[0]}`;
+                  }
+                  return dateMatches[0];
                 }
               }
             }
+            
+            // 마감일을 찾지 못한 경우 빈 문자열 반환
             return "";
           };
 
@@ -240,6 +257,7 @@ export class SaraminScraper {
           
           let deadline = "";
           
+          // 명시적인 마감일 요소 먼저 확인
           const infoDeadline = jviewSection.querySelector(".info_period");
           if (infoDeadline) {
             const endDt = infoDeadline.querySelector("dt.end");
@@ -251,10 +269,28 @@ export class SaraminScraper {
             }
           }
           
-          if (!deadline) {
+          // '상시채용' 문자열 확인
+          const allText = jviewSection.textContent || "";
+          if (allText.includes("상시채용") || allText.includes("수시채용")) {
+            deadline = "상시채용";
+          }
+          // 기존 방식으로도 마감일을 찾지 못했을 때 개선된 함수 사용
+          else if (!deadline) {
             deadline = extractDeadline();
           }
           
+          // 마감일에 시작일이 포함된 경우 제거
+          if (deadline.includes("시작일") || deadline.includes("접수일") || deadline.includes("시작")) {
+            // 시작일과 마감일이 함께 있는 경우, 마감일만 추출 시도
+            const datePattern = /\d{4}[-./]\d{1,2}[-./]\d{1,2}/g;
+            const dates = deadline.match(datePattern);
+            if (dates && dates.length > 1) {
+              deadline = dates[dates.length-1]; // 마지막 날짜 사용(마감일)
+            } else {
+              deadline = ""; // 명확하지 않은 경우 빈 문자열
+            }
+          }
+
           let jobSalary = columnInfo["급여"] || columnInfo["급여조건"] || "";
           if (jobSalary) {
             jobSalary = jobSalary
