@@ -269,11 +269,6 @@ export class SaraminScraper {
             }
           }
           
-          // '상시채용' 문자열 확인
-          const allText = jviewSection.textContent || "";
-          if (allText.includes("상시채용") || allText.includes("수시채용")) {
-            deadline = "상시채용";
-          }
           // 기존 방식으로도 마감일을 찾지 못했을 때 개선된 함수 사용
           else if (!deadline) {
             deadline = extractDeadline();
