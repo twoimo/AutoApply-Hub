@@ -142,12 +142,4 @@ export default class CompanyRecruitmentTable extends ModelABC {
     defaultValue: false,
   })
   is_recommended!: boolean;
-
-    // 해시태그 관련 필드
-    @AllowNull(true)
-    @Column({
-      type: DataType.STRING,
-      comment: "해시태그",
-    })
-    hashtag!: string;
 }
