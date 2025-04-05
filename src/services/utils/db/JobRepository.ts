@@ -267,7 +267,7 @@ export class JobRepository {
         descriptionType: 'text',
         scrapedAt: job.scraped_at ? job.scraped_at.toISOString() : new Date().toISOString(),
         matchScore: job.match_score,
-        isRecommended: job.is_recommended,
+        apply_yn: job.is_recommended,
         matchReason: job.match_reason || '',
         isApplied: job.is_applied,
         isGptChecked: job.is_gpt_checked,
