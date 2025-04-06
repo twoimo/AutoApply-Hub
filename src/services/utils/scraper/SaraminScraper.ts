@@ -81,7 +81,7 @@ export class SaraminScraper {
       
       // 중복 체크
       const duplicatesInThisPage = existingUrls.length;
-      if (duplicatesInThisPage >= 50 && duplicatesInThisPage === links.length) {
+      if (duplicatesInThisPage >= 5 && duplicatesInThisPage === links.length) {
         this.logger.log(`모든 채용 공고(${duplicatesInThisPage}개)가 이미 수집되었습니다`, 'warning');
         shouldContinue = true; // 다음 페이지 계속 진행
         return { jobs: pageJobs, shouldContinue };
@@ -551,7 +551,7 @@ export class SaraminScraper {
     if (newEmptyCounts > 0) {
       this.logger.log(`연속 ${newEmptyCounts}페이지에서 채용 공고를 찾지 못했습니다.`, 'warning');
       
-      if (newEmptyCounts >= 50) {
+      if (newEmptyCounts >= 5) {
         this.logger.log(`연속 ${newEmptyCounts}페이지에서 데이터가 없어 스크래핑을 종료합니다.`, 'warning');
         return { 
           emptyCounts: newEmptyCounts, 
@@ -570,7 +570,7 @@ export class SaraminScraper {
         newDuplicateCounts++;
         this.logger.log(`연속 ${newDuplicateCounts}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
         
-        if (newDuplicateCounts >= 50) {
+        if (newDuplicateCounts >= 5) {
           this.logger.log(`연속 ${newDuplicateCounts}페이지 모두 중복으로 스크래핑을 종료합니다.`, 'warning');
           return {
             emptyCounts: newEmptyCounts,
