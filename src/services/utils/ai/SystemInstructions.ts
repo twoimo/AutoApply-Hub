@@ -40,12 +40,6 @@ json
   ...
 ]
 
-🧾 구직자 정보:
-- 희망 직무: AI/ML, 컴퓨터 비전, 보안, 웹, 게임 이상탐지/보안, 인프라/IDC 서버
-- 선호 기업 규모: 중견기업 이상
-- 관심 산업: 금융, 방산, 게임, AI
-- 거주지: 경기도 양주시
-
 📌 필드 설명:
 - 필수: companyName, jobTitle
 - 평가참조: companyType, jobLocation, jobType, jobSalary, deadline, url, employmentType, jobDescription
