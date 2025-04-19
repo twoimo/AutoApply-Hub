@@ -43,7 +43,7 @@ export const getDefaultCandidateProfile = (): CandidateProfile => {
     projects: [
       { 
         title: '다중센서 융합 기반 유치장 특화 지능형 CCTV 시스템 개발 - 경찰서 유치장 환경에 특화된 낙상 탐지 시스템 개발. ST-GCN 모델 적용으로 낙상 탐지 정확도 83% 달성. 언리얼 엔진 기반 합성 데이터 생성 자동화로 학습 데이터 생성 시간 2배 단축.', 
-        tech: 'ST-GCN, PyTorch, 언리얼 엔진 4'
+        tech: 'ST-GCN, PyTorch, Unreal Engine 4'
       },
       { 
         title: '낚시 입문자를 위한 금어기 판별 AI 웹 서비스 - 17개 금어종에 관한 1,500건 학습 데이터 확보 및 정제. 딥러닝 전이 학습 및 모델 경량화로 mAP50 기준 97% 정확도 달성. 웹 서비스 구현부터 배포까지 전체 개발 프로세스 주도.', 
@@ -60,17 +60,12 @@ export const getDefaultCandidateProfile = (): CandidateProfile => {
     ],
     preferences: {
       fields: [
-        'AI/ML 개발', 
-        '컴퓨터 비전', 
-        '보안', 
-        '웹 서비스 개발', 
-        '게임 보안/이상탐지', 
-        '인프라/IDC 서버 운영',
+        'AI/ML', 
         'Agentic RAG',
         'LLM'
       ],
       company_size: '중견기업 이상',
-      industries: ['금융', '방산', '게임', 'AI'],
+      industries: ['금융', '방산', '게임', 'AI/ML'],
       location: '경기도 양주시',
       job_type: '정규직'
     }
