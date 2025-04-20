@@ -910,194 +910,119 @@ export default class ScraperControlService extends ScraperServiceABC {
                     
                     // 직무 매칭을 위한 프롬프트 생성
                     await mistralService.initializeChat();
+                    
+                    // 제목과 회사 정보로 더 나은 맥락 제공
                     const prompt = `
+                    회사: ${companyName}
+                    채용공고: ${jobTitle}
+                    
                     다음 지원 가능한 직무 목록 중에서 구직자의 경력, 기술, 경험에 가장 적합한 직무를 하나만 선택해 주세요:
                     ${roleOptions.map((opt, idx) => `${idx + 1}. ${opt.text}`).join('\n')}
 
-                    중요: 반드시 정확한 JSON 형식으로만 응답해야 합니다. 
-                    JSON 외의 어떤 설명, 도입부, 결론 등의 텍스트도 포함하지 마세요.
-                    JSON 형식 앞뒤에 백틱(\`\`\`)이나 따옴표를 붙이지 말고, 순수한 JSON 객체만 반환하세요.
-                    
-                    다음 형식만 사용하세요:
-                    {
-                      "selectedIndex": 선택한 직무의 번호(1부터 시작하는 정수),
-                      "reason": "선택 이유 설명"
-                    }
-                    
-                    예시 응답:
-                    {
-                      "selectedIndex": 2,
-                      "reason": "이 직무는 구직자의 Java 및 Spring 프레임워크 경험과 일치합니다."
-                    }
+                    위 채용공고 제목과 구직자의 경력을 고려하여 가장 적합한 직무를 선택하세요.
+                    응답은 반드시 다음 JSON 형식만 사용하고, 다른 설명이나 텍스트는 포함하지 마세요:
+                    {"selectedIndex": 선택한 직무의 번호(1부터 시작), "reason": "선택 이유"}
                     `;
                     
-                    // 비공개 메서드 sendMessage 대신 공개 API 사용
-                    // (채팅 초기화 후 완료 메서드 사용)
-                    const response = await mistralService.matchJobsWithProfile([{
-                      id: 0,
-                      companyName: companyName,
-                      jobTitle: jobTitle,
-                      jobType: "",
-                      jobDescription: prompt,
-                      jobLocation: "",
-                      jobSalary: "",
-                      deadline: "",
-                      employmentType: ""
-                    }], ""); // 빈 문자열은 응답만 받기 위한 용도
-                    
-                    // 응답 파싱 - 결과가 텍스트일 수도 있고 객체일 수도 있음
-                    let responseText = "";
-                    if (typeof response === 'string') {
-                      responseText = response;
-                    } else if (Array.isArray(response) && response.length > 0) {
-                      // 첫 번째 항목의 reason 필드 사용
-                      responseText = response[0].reason || JSON.stringify(response[0]);
-                    } else if (response && typeof response === 'object') {
-                      responseText = JSON.stringify(response);
-                    }
-                    
-                    // 응답 파싱
                     try {
-                      // More aggressive JSON extraction
-                      const jsonRegex = /\{(?:\s|\n)*"selectedIndex"(?:\s|\n)*:(?:\s|\n)*\d+(?:\s|\n)*,(?:\s|\n)*"reason"(?:\s|\n)*:(?:\s|\n)*"[^"]*"(?:\s|\n)*\}/;
-                      const match = responseText.match(jsonRegex);
+                      // matchJobsWithProfile 메서드 사용하여 메시지 전송
+                      const matchResult = await mistralService.matchJobsWithProfile([], prompt);
+                      const response = matchResult?.message || matchResult?.toString() || '';
+                      logger.log(`AI 응답: ${response}`, 'info');
                       
-                      if (match) {
-                        const result = JSON.parse(match[0]);
-                        
-                        if (result && typeof result.selectedIndex === 'number') {
-                          const selectedIndex = result.selectedIndex - 1; // 0-based 인덱스로 변환
-                          
-                          if (selectedIndex >= 0 && selectedIndex < roleOptions.length) {
-                            const selectedOption = roleOptions[selectedIndex];
-                            logger.log(`AI 추천 직무: ${selectedOption.text}`, 'success');
-                            logger.log(`추천 이유: ${result.reason}`, 'info');
-                            
-                            // 드롭다운에서 직무 선택
-                            await page.select(
-                              '#inpApply, select[id*="Apply"], .box_choice select', 
-                              selectedOption.value
-                            );
-                            logger.log('선택된 직무가 드롭다운에서 설정되었습니다.', 'success');
-                            
-                            // 변경사항이 적용되도록 잠시 대기
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                          } else {
-                            logger.log(`선택된 인덱스(${result.selectedIndex})가 유효 범위를 벗어났습니다. 첫 번째 옵션 사용.`, 'warning');
-                          }
-                        } else {
-                          logger.log('AI 응답에서 유효한 선택 인덱스를 찾을 수 없습니다. 첫 번째 옵션 사용.', 'warning');
-                        }
-                      } else {
-                        // Fallback: If no valid JSON is found, implement a more thorough extraction
-                        // First try to find any JSON-like object
-                        const anyJsonRegex = /\{[\s\S]*?\}/g;
-                        const jsonMatches = responseText.match(anyJsonRegex);
-                        
-                        if (jsonMatches) {
-                          // Try each potential JSON match
-                          for (const potentialJson of jsonMatches) {
-                            try {
-                              const parsed = JSON.parse(potentialJson);
-                              if (parsed && typeof parsed.selectedIndex === 'number') {
-                                const selectedIndex = parsed.selectedIndex - 1;
-                                if (selectedIndex >= 0 && selectedIndex < roleOptions.length) {
-                                  const selectedOption = roleOptions[selectedIndex];
-                                  logger.log(`AI 추천 직무 (대체 방식): ${selectedOption.text}`, 'success');
-                                  logger.log(`추천 이유: ${parsed.reason}`, 'info');
-                                  
-                                  // 드롭다운에서 직무 선택
-                                  await page.select(
-                                    '#inpApply, select[id*="Apply"], .box_choice select', 
-                                    selectedOption.value
-                                  );
-                                  logger.log('선택된 직무가 드롭다운에서 설정되었습니다.', 'success');
-                                  
-                                  // 변경사항이 적용되도록 잠시 대기
-                                  await new Promise(resolve => setTimeout(resolve, 1000));
-                                  break; // Found valid JSON, exit loop
-                                }
-                              }
-                            } catch (e) {
-                              // Continue to next potential match
-                              continue;
-                            }
-                          }
-                        }
-                        
-                        // If still no valid JSON, log and use first option
-                        logger.log(`AI 응답에서 JSON 형식을 찾을 수 없습니다. 첫 번째 옵션 사용.`, 'warning');
-                        logger.log(`AI 응답 원문: ${responseText}`, 'info');
-                        
-                        // 로그에 응답 형식 문제 진단 정보 추가
-                        logger.log('=== JSON 파싱 디버그 정보 ===', 'info');
-                        logger.log(`응답 길이: ${responseText.length}자`, 'info');
-                        logger.log(`응답 타입: ${typeof responseText}`, 'info');
-                        
-                        // 응답에 JSON 형태의 문자가 포함되어 있는지 확인
-                        const hasOpenBrace = responseText.includes('{');
-                        const hasCloseBrace = responseText.includes('}');
-                        logger.log(`중괄호 포함 여부: 열기({) - ${hasOpenBrace}, 닫기(}) - ${hasCloseBrace}`, 'info');
-                        
-                        // JSON으로 변환 가능한 부분이 있는지 마지막 시도
+                      // JSON 형식 응답 추출 시도
+                      const jsonMatch = response.match(/\{[\s\S]*?\}/);
+                      if (jsonMatch) {
                         try {
-                          // 중괄호로 둘러싸인 부분 추출 시도
-                          const simpleBraceMatch = responseText.match(/\{[\s\S]*?\}/);
-                          if (simpleBraceMatch) {
-                            logger.log(`발견된 중괄호 부분: ${simpleBraceMatch[0]}`, 'info');
-                            
-                            try {
-                              const simpleJson = JSON.parse(simpleBraceMatch[0]);
-                              logger.log(`파싱된 JSON: ${JSON.stringify(simpleJson)}`, 'info');
+                          const result = JSON.parse(jsonMatch[0]);
+                          if (result && typeof result.selectedIndex === 'number') {
+                            const selectedIndex = result.selectedIndex;
+                            // 인덱스가 유효하고 "선택해주세요" 옵션이 아닌지 확인
+                            if (selectedIndex > 0 && selectedIndex < roleOptions.length) {
+                              const selectedOption = roleOptions[selectedIndex];
+                              logger.log(`AI 추천 직무: ${selectedOption.text}`, 'success');
+                              logger.log(`추천 이유: ${result.reason || '명시되지 않음'}`, 'info');
                               
-                              // selectedIndex가 있으면 사용
-                              if (simpleJson.selectedIndex && typeof simpleJson.selectedIndex === 'number') {
-                                const selectedIndex = simpleJson.selectedIndex - 1;
-                                if (selectedIndex >= 0 && selectedIndex < roleOptions.length) {
-                                  const selectedOption = roleOptions[selectedIndex];
-                                  logger.log(`최종 시도로 발견된 직무: ${selectedOption.text}`, 'success');
-                                  
-                                  await page.select(
-                                    '#inpApply, select[id*="Apply"], .box_choice select', 
-                                    selectedOption.value
-                                  );
-                                  logger.log('선택된 직무가 성공적으로 설정되었습니다!', 'success');
-                                  
-                                  // 변경사항이 적용되도록 잠시 대기
-                                  await new Promise(resolve => setTimeout(resolve, 1000));
-                                  
-                                  // 성공했으므로 여기서 처리 완료
-                                  logger.log('=== JSON 파싱 디버그 완료 ===', 'info');
-                                  continue;
-                                }
-                              }
-                            } catch (e) {
-                              logger.log(`단순 중괄호 파싱 실패: ${e}`, 'warning');
+                              await page.select(
+                                '#inpApply, select[id*="Apply"], .box_choice select', 
+                                selectedOption.value
+                              );
+                              logger.log('선택된 직무가 드롭다운에서 설정되었습니다.', 'success');
+                              await new Promise(resolve => setTimeout(resolve, 1000));
+                              continue; // 성공했으므로 다음 처리로 진행
                             }
                           }
-                        } catch (lastError) {
-                          logger.log(`최종 JSON 추출 시도 실패: ${lastError}`, 'warning');
+                        } catch (e) {
+                          logger.log(`JSON 파싱 오류: ${e}`, 'warning');
                         }
+                      }
+                      
+                      // AI 응답 실패 시 키워드 기반 폴백 로직 사용
+                      logger.log('AI 응답에서 유효한 선택을 찾을 수 없어 키워드 기반 매칭을 시도합니다.', 'warning');
+                      const keywordMatching = {
+                        '펌웨어': roleOptions.findIndex(opt => opt.text.includes('펌웨어') || opt.text.includes('임베디드')),
+                        '임베디드': roleOptions.findIndex(opt => opt.text.includes('임베디드') || opt.text.includes('펌웨어')),
+                        'AI 플랫폼': roleOptions.findIndex(opt => opt.text.includes('AI 플랫폼')),
+                        '플랫폼': roleOptions.findIndex(opt => opt.text.includes('플랫폼')),
+                        'AI 클라우드': roleOptions.findIndex(opt => opt.text.includes('AI 클라우드') || opt.text.includes('클라우드')),
+                        '클라우드': roleOptions.findIndex(opt => opt.text.includes('클라우드')),
+                        'AI': roleOptions.findIndex(opt => opt.text.includes('AI')),
+                        'SW': roleOptions.findIndex(opt => opt.text.includes('SW') || opt.text.includes('소프트웨어'))
+                      };
+                      
+                      // 채용공고 제목에서 키워드 찾기
+                      let selectedRoleIndex = -1;
+                      for (const [keyword, index] of Object.entries(keywordMatching)) {
+                        if (index > 0 && jobTitle.includes(keyword)) {
+                          selectedRoleIndex = index;
+                          logger.log(`키워드 '${keyword}'가 채용공고 제목에서 발견되어 매칭되었습니다.`, 'info');
+                          break;
+                        }
+                      }
+                      
+                      // 키워드 매칭이 실패하면 비-기본 옵션 중 첫 번째를 선택
+                      if (selectedRoleIndex <= 0) {
+                        // 첫 번째 옵션이 "선택해주세요"같은 기본 옵션인 경우 두 번째 옵션 선택
+                        selectedRoleIndex = roleOptions.findIndex((opt, idx) => 
+                          idx > 0 && !opt.text.includes('선택해주세요'));
                         
-                        // 아무런 방법도 성공하지 못한 경우, 첫 번째 옵션 선택
-                        logger.log('모든 파싱 시도 실패. 첫 번째 직무를 선택합니다.', 'warning');
-                        logger.log('=== JSON 파싱 디버그 완료 ===', 'info');
-                        
-                        // 드롭다운에서 첫 번째 직무 선택
+                        // 여전히 없으면 첫 번째 실제 옵션 선택 (인덱스 1부터)
+                        if (selectedRoleIndex <= 0 && roleOptions.length > 1) {
+                          selectedRoleIndex = 1; // 보통 0번은 "선택해주세요"임
+                        }
+                      }
+                      
+                      if (selectedRoleIndex > 0 && selectedRoleIndex < roleOptions.length) {
+                        const selectedOption = roleOptions[selectedRoleIndex];
+                        logger.log(`키워드 매칭으로 선택된 직무: ${selectedOption.text}`, 'success');
                         await page.select(
                           '#inpApply, select[id*="Apply"], .box_choice select', 
-                          roleOptions[0].value
+                          selectedOption.value
                         );
-                        logger.log('첫 번째 직무가 드롭다운에서 설정되었습니다.', 'success');
+                        logger.log('선택된 직무가 드롭다운에서 설정되었습니다.', 'success');
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                      } else {
+                        // 모든 방법이 실패한 경우 두 번째 옵션 선택 (첫 번째는 보통 "선택해주세요")
+                        const fallbackIndex = (roleOptions.length > 1) ? 1 : 0;
+                        logger.log(`모든 매칭 시도 실패. ${roleOptions[fallbackIndex].text} 선택.`, 'warning');
+                        await page.select(
+                          '#inpApply, select[id*="Apply"], .box_choice select', 
+                          roleOptions[fallbackIndex].value
+                        );
+                        logger.log('기본 직무가 드롭다운에서 설정되었습니다.', 'success');
+                        await new Promise(resolve => setTimeout(resolve, 1000));
                       }
-                    } catch (parseError) {
-                      logger.log(`JSON 파싱 중 오류 발생: ${parseError}. 첫 번째 옵션 사용.`, 'warning');
-                      // 드롭다운에서 첫 번째 직무 선택
+                    } catch (apiError) {
+                      logger.log(`AI API 호출 중 오류: ${apiError}. 첫 번째 실제 옵션을 선택합니다.`, 'error');
+                      // 첫 번째 실제 옵션 선택 (인덱스 0이 "선택해주세요"인 경우 인덱스 1 선택)
+                      const defaultIndex = (roleOptions.length > 1 && 
+                                           roleOptions[0].text.includes('선택')) ? 1 : 0;
                       await page.select(
                         '#inpApply, select[id*="Apply"], .box_choice select', 
-                        roleOptions[0].value
+                        roleOptions[defaultIndex].value
                       );
-                      logger.log('첫 번째 직무가 드롭다운에서 설정되었습니다.', 'success');
+                      logger.log(`${roleOptions[defaultIndex].text} 직무가 선택되었습니다.`, 'success');
+                      await new Promise(resolve => setTimeout(resolve, 1000));
                     }
                   }
                 } catch (aiError) {
