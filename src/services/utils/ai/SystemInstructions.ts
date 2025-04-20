@@ -51,7 +51,7 @@ json
 - 평가참조: companyType, jobLocation, jobType, jobSalary, deadline, url, employmentType, jobDescription
 
 ✅ 최종 결정 기준:
-- AI/ML/DATA 직무인 경우:
+- AI/ML/DATA 관련 직무인 경우:
   - 85점 이상: 적극 지원 권장 (apply_yn: true)
   - 70~84점: 지원 권장 (apply_yn: true)
   - 55~69점: 검토 후 지원 (apply_yn: false)
