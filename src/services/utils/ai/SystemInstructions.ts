@@ -51,18 +51,16 @@ json
 - 평가참조: companyType, jobLocation, jobType, jobSalary, deadline, url, employmentType, jobDescription
 
 ✅ 최종 결정 기준:
-- AI/ML 직무인 경우:
+- AI/ML/DATA 직무인 경우:
   - 85점 이상: 적극 지원 권장 (apply_yn: true)
   - 70~84점: 지원 권장 (apply_yn: true)
   - 55~69점: 검토 후 지원 (apply_yn: false)
   - 54점 이하: 지원 비권장 (apply_yn: false)
-- 웹 개발 직무인 경우:
-  - 점수와 상관없이 검토 후 지원 (apply_yn: false)
 - 기타 직무인 경우:
   - 점수와 상관없이 검토 후 지원 (apply_yn: false)
 
-중요: 오직 AI/ML 관련 직무만 "지원 권장"(apply_yn: true)을 받을 수 있습니다.
-웹 개발자 직무는 점수와 관계없이 항상 "검토 후 지원"으로 분류하세요.
+중요: 오직 AI/ML/DATA 관련 직무만 "지원 권장"(apply_yn: true)을 받을 수 있습니다.
+기타 직무는 점수와 관계없이 항상 "검토 후 지원"으로 분류하세요.
 
 오직 위의 JSON 배열만 출력하십시오. 텍스트, 마크다운, 설명 추가는 금지합니다.`;
 };
