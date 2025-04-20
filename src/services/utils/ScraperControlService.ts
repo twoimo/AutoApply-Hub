@@ -741,7 +741,7 @@ export default class ScraperControlService extends ScraperServiceABC {
           // 5. 채용 공고 페이지로 이동
           logger.log(`채용 공고 페이지 로딩 중: ${jobUrl}`, 'info');
           const loadSuccess = await browserService.loadPageWithRetry(page, jobUrl, {
-            waitTime: 3000
+            waitTime: 5000
           });
           
           if (!loadSuccess) {
@@ -751,22 +751,19 @@ export default class ScraperControlService extends ScraperServiceABC {
             continue;
           }
           
-            // 6. 입사지원 버튼 찾기
-            const applyButtonInfo = await browserService.evaluate<{selector: string, text: string} | null>(page, () => {
-              // 먼저, 페이지에 jview 요소가 있는지 확인
-              const jviewElements = Array.from(document.querySelectorAll('[class^="jview jview-0-"]'));
-              
-              // jview 요소가 존재하면 그 안에서 먼저 버튼을 찾음
-              if (jviewElements.length > 0) {
-                for (const jviewElement of jviewElements) {
-                  const btnElements = Array.from(jviewElement.querySelectorAll('button, a.btn'));
-                  const applyBtn = btnElements.find(btn => {
-                    const text = btn.textContent?.trim();
-                    return text === '입사지원' || text === '홈페이지 지원';
-                  });
-                  
+          // 6. 입사지원 버튼 찾기
+          const applyButtonInfo = await browserService.evaluate<{selector: string, text: string} | null>(page, () => {
+            // 먼저, 페이지에 jview 요소가 있는지 확인
+            const jviewElements = Array.from(document.querySelectorAll('.jview[class*="jview-0-"]'));
+            
+            // jview 요소가 존재하면 그 안에서 먼저 버튼을 찾음
+            if (jviewElements.length > 0) {
+              for (const jviewElement of jviewElements) {
+                // 먼저 btn_apply 컨테이너를 찾음 (입사지원 버튼의 부모 요소)
+                const btnApplyContainer = jviewElement.querySelector('.btn_apply');
+                if (btnApplyContainer) {
+                  const applyBtn = btnApplyContainer.querySelector('button');
                   if (applyBtn) {
-                    // jview 요소 내부에서 버튼을 찾음
                     applyBtn.setAttribute('data-apply-button', 'true');
                     return {
                       selector: '[data-apply-button="true"]',
@@ -775,16 +772,17 @@ export default class ScraperControlService extends ScraperServiceABC {
                   }
                 }
               }
-              
-              // jview 요소에서 찾지 못한 경우 원래 방식으로 찾기
-              const btnElements = Array.from(document.querySelectorAll('.btn_apply, .btn_apply_button, .sri_btn_lg, .sri_btn_md'));
-              const applyBtn = btnElements.find(btn => {
-                const text = btn.textContent?.trim();
-                return text === '입사지원' || text === '홈페이지 지원';
-              });
-              
-              return null;
+            }
+            
+            // jview 요소에서 찾지 못한 경우 원래 방식으로 찾기
+            const btnElements = Array.from(document.querySelectorAll('.btn_apply, .btn_apply_button, .sri_btn_lg, .sri_btn_md'));
+            const applyBtn = btnElements.find(btn => {
+              const text = btn.textContent?.trim();
+              return text === '입사지원' || text === '홈페이지 지원';
             });
+            
+            return null;
+          });
           
           if (!applyButtonInfo) {
             logger.log('입사지원 버튼을 찾을 수 없습니다. 다음 공고로 넘어갑니다.', 'warning');
@@ -813,15 +811,15 @@ export default class ScraperControlService extends ScraperServiceABC {
           
           // 11. iframe URL 추출
           const iframeUrl = await browserService.evaluate<string>(page, () => {
-          const iframe = document.querySelector('#quick_apply_layer_frame');
-          return iframe && iframe.getAttribute('src') || '';
+            const iframe = document.querySelector('#quick_apply_layer_frame');
+            return iframe && iframe.getAttribute('src') || '';
           });
           
           if (!iframeUrl) {
-          logger.log('입사지원 iframe을 찾을 수 없습니다.', 'warning');
-          failedCount++;
-          details.push(`[실패] ${companyName} - ${jobTitle}: 지원 iframe 없음`);
-          continue;
+            logger.log('입사지원 iframe을 찾을 수 없습니다.', 'warning');
+            failedCount++;
+            details.push(`[실패] ${companyName} - ${jobTitle}: 지원 iframe 없음`);
+            continue;
           }
           
           // 12. iframe URL 검증 - 채용 공고 URL과 iframe URL 간의 호환성 확인
@@ -913,17 +911,25 @@ export default class ScraperControlService extends ScraperServiceABC {
                     // 직무 매칭을 위한 프롬프트 생성
                     await mistralService.initializeChat();
                     const prompt = `
-                                    구직자 프로필:
-                                    ${formattedProfile}
+                    다음 지원 가능한 직무 목록 중에서 구직자의 경력, 기술, 경험에 가장 적합한 직무를 하나만 선택해 주세요:
+                    ${roleOptions.map((opt, idx) => `${idx + 1}. ${opt.text}`).join('\n')}
 
-                                    다음 지원 가능한 직무 목록 중에서 구직자의 경력, 기술, 경험에 가장 적합한 직무를 하나만 선택해 주세요:
-                                    ${roleOptions.map((opt, idx) => `${idx + 1}. ${opt.text}`).join('\n')}
-
-                                    다음 JSON 형식으로 응답해주세요:
-                                    {
-                                      "selectedIndex": 직무 선택 인덱스(1부터 시작),
-                                      "reason": "선택 이유 설명"
-                                    }`;
+                    중요: 반드시 정확한 JSON 형식으로만 응답해야 합니다. 
+                    JSON 외의 어떤 설명, 도입부, 결론 등의 텍스트도 포함하지 마세요.
+                    JSON 형식 앞뒤에 백틱(\`\`\`)이나 따옴표를 붙이지 말고, 순수한 JSON 객체만 반환하세요.
+                    
+                    다음 형식만 사용하세요:
+                    {
+                      "selectedIndex": 선택한 직무의 번호(1부터 시작하는 정수),
+                      "reason": "선택 이유 설명"
+                    }
+                    
+                    예시 응답:
+                    {
+                      "selectedIndex": 2,
+                      "reason": "이 직무는 구직자의 Java 및 Spring 프레임워크 경험과 일치합니다."
+                    }
+                    `;
                     
                     // 비공개 메서드 sendMessage 대신 공개 API 사용
                     // (채팅 초기화 후 완료 메서드 사용)
@@ -952,16 +958,18 @@ export default class ScraperControlService extends ScraperServiceABC {
                     
                     // 응답 파싱
                     try {
-                      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-                      if (jsonMatch) {
-                        const result = JSON.parse(jsonMatch[0]);
+                      // More aggressive JSON extraction
+                      const jsonRegex = /\{(?:\s|\n)*"selectedIndex"(?:\s|\n)*:(?:\s|\n)*\d+(?:\s|\n)*,(?:\s|\n)*"reason"(?:\s|\n)*:(?:\s|\n)*"[^"]*"(?:\s|\n)*\}/;
+                      const match = responseText.match(jsonRegex);
+                      
+                      if (match) {
+                        const result = JSON.parse(match[0]);
                         
                         if (result && typeof result.selectedIndex === 'number') {
                           const selectedIndex = result.selectedIndex - 1; // 0-based 인덱스로 변환
                           
                           if (selectedIndex >= 0 && selectedIndex < roleOptions.length) {
                             const selectedOption = roleOptions[selectedIndex];
-                            
                             logger.log(`AI 추천 직무: ${selectedOption.text}`, 'success');
                             logger.log(`추천 이유: ${result.reason}`, 'info');
                             
@@ -981,14 +989,125 @@ export default class ScraperControlService extends ScraperServiceABC {
                           logger.log('AI 응답에서 유효한 선택 인덱스를 찾을 수 없습니다. 첫 번째 옵션 사용.', 'warning');
                         }
                       } else {
-                        logger.log('AI 응답에서 JSON 형식을 찾을 수 없습니다. 첫 번째 옵션 사용.', 'warning');
+                        // Fallback: If no valid JSON is found, implement a more thorough extraction
+                        // First try to find any JSON-like object
+                        const anyJsonRegex = /\{[\s\S]*?\}/g;
+                        const jsonMatches = responseText.match(anyJsonRegex);
+                        
+                        if (jsonMatches) {
+                          // Try each potential JSON match
+                          for (const potentialJson of jsonMatches) {
+                            try {
+                              const parsed = JSON.parse(potentialJson);
+                              if (parsed && typeof parsed.selectedIndex === 'number') {
+                                const selectedIndex = parsed.selectedIndex - 1;
+                                if (selectedIndex >= 0 && selectedIndex < roleOptions.length) {
+                                  const selectedOption = roleOptions[selectedIndex];
+                                  logger.log(`AI 추천 직무 (대체 방식): ${selectedOption.text}`, 'success');
+                                  logger.log(`추천 이유: ${parsed.reason}`, 'info');
+                                  
+                                  // 드롭다운에서 직무 선택
+                                  await page.select(
+                                    '#inpApply, select[id*="Apply"], .box_choice select', 
+                                    selectedOption.value
+                                  );
+                                  logger.log('선택된 직무가 드롭다운에서 설정되었습니다.', 'success');
+                                  
+                                  // 변경사항이 적용되도록 잠시 대기
+                                  await new Promise(resolve => setTimeout(resolve, 1000));
+                                  break; // Found valid JSON, exit loop
+                                }
+                              }
+                            } catch (e) {
+                              // Continue to next potential match
+                              continue;
+                            }
+                          }
+                        }
+                        
+                        // If still no valid JSON, log and use first option
+                        logger.log(`AI 응답에서 JSON 형식을 찾을 수 없습니다. 첫 번째 옵션 사용.`, 'warning');
+                        logger.log(`AI 응답 원문: ${responseText}`, 'info');
+                        
+                        // 로그에 응답 형식 문제 진단 정보 추가
+                        logger.log('=== JSON 파싱 디버그 정보 ===', 'info');
+                        logger.log(`응답 길이: ${responseText.length}자`, 'info');
+                        logger.log(`응답 타입: ${typeof responseText}`, 'info');
+                        
+                        // 응답에 JSON 형태의 문자가 포함되어 있는지 확인
+                        const hasOpenBrace = responseText.includes('{');
+                        const hasCloseBrace = responseText.includes('}');
+                        logger.log(`중괄호 포함 여부: 열기({) - ${hasOpenBrace}, 닫기(}) - ${hasCloseBrace}`, 'info');
+                        
+                        // JSON으로 변환 가능한 부분이 있는지 마지막 시도
+                        try {
+                          // 중괄호로 둘러싸인 부분 추출 시도
+                          const simpleBraceMatch = responseText.match(/\{[\s\S]*?\}/);
+                          if (simpleBraceMatch) {
+                            logger.log(`발견된 중괄호 부분: ${simpleBraceMatch[0]}`, 'info');
+                            
+                            try {
+                              const simpleJson = JSON.parse(simpleBraceMatch[0]);
+                              logger.log(`파싱된 JSON: ${JSON.stringify(simpleJson)}`, 'info');
+                              
+                              // selectedIndex가 있으면 사용
+                              if (simpleJson.selectedIndex && typeof simpleJson.selectedIndex === 'number') {
+                                const selectedIndex = simpleJson.selectedIndex - 1;
+                                if (selectedIndex >= 0 && selectedIndex < roleOptions.length) {
+                                  const selectedOption = roleOptions[selectedIndex];
+                                  logger.log(`최종 시도로 발견된 직무: ${selectedOption.text}`, 'success');
+                                  
+                                  await page.select(
+                                    '#inpApply, select[id*="Apply"], .box_choice select', 
+                                    selectedOption.value
+                                  );
+                                  logger.log('선택된 직무가 성공적으로 설정되었습니다!', 'success');
+                                  
+                                  // 변경사항이 적용되도록 잠시 대기
+                                  await new Promise(resolve => setTimeout(resolve, 1000));
+                                  
+                                  // 성공했으므로 여기서 처리 완료
+                                  logger.log('=== JSON 파싱 디버그 완료 ===', 'info');
+                                  continue;
+                                }
+                              }
+                            } catch (e) {
+                              logger.log(`단순 중괄호 파싱 실패: ${e}`, 'warning');
+                            }
+                          }
+                        } catch (lastError) {
+                          logger.log(`최종 JSON 추출 시도 실패: ${lastError}`, 'warning');
+                        }
+                        
+                        // 아무런 방법도 성공하지 못한 경우, 첫 번째 옵션 선택
+                        logger.log('모든 파싱 시도 실패. 첫 번째 직무를 선택합니다.', 'warning');
+                        logger.log('=== JSON 파싱 디버그 완료 ===', 'info');
+                        
+                        // 드롭다운에서 첫 번째 직무 선택
+                        await page.select(
+                          '#inpApply, select[id*="Apply"], .box_choice select', 
+                          roleOptions[0].value
+                        );
+                        logger.log('첫 번째 직무가 드롭다운에서 설정되었습니다.', 'success');
                       }
                     } catch (parseError) {
-                      logger.log(`AI 응답 파싱 오류: ${parseError}. 첫 번째 옵션 사용.`, 'warning');
+                      logger.log(`JSON 파싱 중 오류 발생: ${parseError}. 첫 번째 옵션 사용.`, 'warning');
+                      // 드롭다운에서 첫 번째 직무 선택
+                      await page.select(
+                        '#inpApply, select[id*="Apply"], .box_choice select', 
+                        roleOptions[0].value
+                      );
+                      logger.log('첫 번째 직무가 드롭다운에서 설정되었습니다.', 'success');
                     }
                   }
                 } catch (aiError) {
                   logger.log(`직무 매칭 중 오류: ${aiError}. 첫 번째 옵션을 자동 선택합니다.`, 'error');
+                  // 드롭다운에서 첫 번째 직무 선택
+                  await page.select(
+                    '#inpApply, select[id*="Apply"], .box_choice select', 
+                    roleOptions[0].value
+                  );
+                  logger.log('첫 번째 직무가 드롭다운에서 설정되었습니다.', 'success');
                 }
               }
             } else {
