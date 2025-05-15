@@ -101,4 +101,31 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
     await this.ensureInitialized();
     return await this.scraperControlService.applySaraminJobs();
   }
+
+  /**
+   * 사용자 이력서/프롬프트 조회 API
+   * @httpMethod get
+   * @path /user-resume-prompt
+   * @objectParams {string} userId - 사용자 ID
+   */
+  public async getUserResumePrompt({ userId }: { userId: string }): Promise<any> {
+    if (!userId) return { error: 'userId required' };
+    const { UserResumePromptService } = await import('../user/UserResumePromptService');
+    return await UserResumePromptService.getResumePrompt(userId);
+  }
+
+  /**
+   * 사용자 이력서/프롬프트 저장 API
+   * @httpMethod post
+   * @path /user-resume-prompt
+   * @objectParams {string} userId - 사용자 ID
+   * @objectParams {string} resume - 이력서
+   * @objectParams {string} prompt - 프롬프트
+   */
+  public async setUserResumePrompt({ userId, resume, prompt }: { userId: string, resume: string, prompt: string }): Promise<any> {
+    if (!userId) return { error: 'userId required' };
+    const { UserResumePromptService } = await import('../user/UserResumePromptService');
+    await UserResumePromptService.upsertResumePrompt(userId, resume, prompt);
+    return { success: true };
+  }
 }

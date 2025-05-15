@@ -5,6 +5,7 @@ import CompanyRecruitmentTable from '../../../models/main/CompanyRecruitmentTabl
 import { Op } from 'sequelize';
 import { MistralAIService } from './MistralAIService';
 import { JobInfo } from '../types/JobTypes';
+import { UserResumePromptService } from '../../../services/user/UserResumePromptService';
 
 /**
  * 일자리 매칭 결과 인터페이스
@@ -59,8 +60,9 @@ export default class JobMatchingService {
 
   /**
    * 구직자 프로필과 일치하는 채용 공고를 찾아 매칭
+   * @param userId 매칭할 사용자 ID
    */
-  public async matchJobs(options: JobMatchOptions = {}): Promise<{
+  public async matchJobs(options: JobMatchOptions = {}, userId?: string): Promise<{
     success: boolean;
     message: string;
     matchedJobs?: JobMatchResult[];
@@ -110,8 +112,18 @@ export default class JobMatchingService {
         }
       }
 
-      // 구직자 프로필 포맷팅
-      const candidateProfileText = formatCandidateProfile(this.candidateProfile);
+      // 사용자 이력서/프롬프트 불러오기
+      let candidateProfileText = '';
+      if (userId) {
+        const userProfile = await UserResumePromptService.getResumePrompt(userId);
+        if (userProfile) {
+          candidateProfileText = `이력서:\n${userProfile.resume || ''}\n\n프롬프트:\n${userProfile.prompt || ''}`;
+        } else {
+          candidateProfileText = formatCandidateProfile(this.candidateProfile);
+        }
+      } else {
+        candidateProfileText = formatCandidateProfile(this.candidateProfile);
+      }
 
       // Mistral AI로 채용공고 매칭 실행
       const response = await this.mistralService.matchJobsWithProfile(

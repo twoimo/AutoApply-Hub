@@ -342,7 +342,7 @@ export default class ScraperControlService extends ScraperServiceABC {
         const matchResult = await mainService.matchJobs({
           limit: unmatchedJobs.length,
           matchLimit: 10
-        });
+        }, 'demo-user');
 
         if (matchResult.success) {
           processedCount = unmatchedJobs.length;
