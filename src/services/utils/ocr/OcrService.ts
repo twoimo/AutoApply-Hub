@@ -12,7 +12,7 @@ export class OcrService {
   private readonly imageProcessor: ImageProcessor;
 
   constructor(
-    apiKey: string | undefined, 
+    apiKey: string | undefined,
     logger: LoggerService,
     imageProcessor: ImageProcessor
   ) {
@@ -42,6 +42,10 @@ export class OcrService {
    * OCR을 사용하여 이미지에서 텍스트 추출
    */
   public async processImageWithOCR(imageUrl: string): Promise<string> {
+    if (!imageUrl || (!imageUrl.startsWith('data:image') && !imageUrl.startsWith('https://'))) {
+      this.logger.log('OCR 입력값이 유효하지 않음, 건너뜀', 'warning');
+      return '';
+    }
     if (!this.mistralClient) {
       throw new Error('Mistral API 클라이언트가 초기화되지 않음');
     }
@@ -91,16 +95,16 @@ export class OcrService {
    * OCR 오류 처리
    */
   private async handleOcrError(
-    error: any, 
-    imageUrl: string, 
-    attempt: number, 
+    error: any,
+    imageUrl: string,
+    attempt: number,
     maxRetries: number
   ): Promise<string> {
     // API 오류 상세 로깅
     if (error.statusCode) {
       this.logger.log(`OCR API 오류(${error.statusCode}): ${error.message}`, 'warning');
     }
-    
+
     // 속도 제한이나 서버 오류의 경우 재시도
     if (error.statusCode === 429 || error.statusCode === 500 || error.statusCode === 503) {
       if (attempt < maxRetries - 1) {
@@ -108,7 +112,7 @@ export class OcrService {
         await sleep(2000 * (attempt + 1)); // 지수 백오프
         return ""; // 다음 시도로 이동
       }
-    } 
+    }
     // 잘못된 이미지 URL - 다른 방식으로 재시도
     else if (error.statusCode === 400 && error.message?.includes('invalid_file')) {
       if (attempt < maxRetries - 1) {
@@ -116,22 +120,22 @@ export class OcrService {
         try {
           // 이미지가 존재하는지 먼저 확인 (ImageProcessor에서 이미 체크되지만 명시적으로 처리)
           if (imageUrl.includes('//upload/') && (
-              imageUrl.includes('404') || 
-              error.message.includes('not found') || 
-              error.message.includes('404')
+            imageUrl.includes('404') ||
+            error.message.includes('not found') ||
+            error.message.includes('404')
           )) {
             this.logger.log(`이미지가 존재하지 않는 것으로 판단됨 (404). 재시도 중단`, 'warning');
             throw new Error('이미지를 찾을 수 없음 (404)');
           }
-          
+
           const dataUrl = await this.imageProcessor.resizeImageIfNeeded(imageUrl);
-          
+
           // 변환된 URL이 원본과 같거나 비어있으면 재시도 중단
           if (!dataUrl || dataUrl === imageUrl) {
             this.logger.log(`이미지 변환 실패, 재시도 중단`, 'warning');
             throw new Error('이미지 변환 실패');
           }
-          
+
           // 다음 시도에서 data URL 사용
           return await this.processImageWithOCR(dataUrl);
         } catch (conversionError: any) {
@@ -141,7 +145,7 @@ export class OcrService {
         }
       }
     }
-    
+
     throw error; // 다른 오류는 바로 전파
   }
 
@@ -151,23 +155,23 @@ export class OcrService {
   public async improveTextWithMistral(text: string): Promise<string> {
     if (!text || text.length < 10) return text;
     if (!this.mistralClient) return text;
-    
+
     const maxRetries = 3;
     let retryCount = 0;
     let backoffTime = 2000; // 시작 대기 시간 2초
-    
+
     while (retryCount <= maxRetries) {
       try {
         if (retryCount > 0) {
           this.logger.log(`Mistral API 요청 재시도 중... (${retryCount}/${maxRetries})`, 'warning');
         }
-        
+
         this.logger.logVerbose('Mistral AI를 사용하여 텍스트 개선 중...');
-        
+
         const prompt = this.buildTextImprovementPrompt(text);
 
         const response = await this.mistralClient.chat.complete({
-          model: "mistral-small-latest", 
+          model: "mistral-small-latest",
           messages: [{ role: "user", content: prompt }],
           temperature: 0.1, // 낮은 온도로 일관된 결과 유도
           maxTokens: 4096  // 충분한 토큰 할당
@@ -178,7 +182,7 @@ export class OcrService {
       } catch (error: any) {
         if (this.isRateLimitError(error)) {
           if (retryCount < maxRetries) {
-            this.logger.log(`속도 제한으로 인한 오류, ${backoffTime/1000}초 후 재시도...`, 'warning');
+            this.logger.log(`속도 제한으로 인한 오류, ${backoffTime / 1000}초 후 재시도...`, 'warning');
             await sleep(backoffTime);
             backoffTime *= 2; // 지수 백오프
             retryCount++;
@@ -192,7 +196,7 @@ export class OcrService {
         }
       }
     }
-    
+
     return text; // 모든 시도 실패 시 원본 반환
   }
 
@@ -200,8 +204,8 @@ export class OcrService {
    * 속도 제한 오류인지 확인
    */
   private isRateLimitError(error: any): boolean {
-    return error.statusCode === 429 || 
-           (error.message && error.message.includes("rate limit"));
+    return error.statusCode === 429 ||
+      (error.message && error.message.includes("rate limit"));
   }
 
   /**
@@ -265,57 +269,57 @@ export class OcrService {
    */
   public cleanJobDescription(text: string): string {
     if (!text) return '';
-    
+
     let cleaned = text;
-    
+
     // HTML 태그 제거
     cleaned = cleaned.replace(/<[^>]*>/g, ' ');
-    
+
     // HTML 엔티티 디코딩
     cleaned = cleaned.replace(/&nbsp;/g, ' ')
-                     .replace(/&amp;/g, '&')
-                     .replace(/&lt;/g, '<')
-                     .replace(/&gt;/g, '>')
-                     .replace(/&quot;/g, '"')
-                     .replace(/&#39;/g, "'");
-    
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+
     // 한글 자음/모음만 있는 무의미한 패턴 제거
     cleaned = cleaned.replace(/[ㄱ-ㅎㅏ-ㅣ]{2,}/g, '');
-    
+
     // 마크다운 헤더 형식 정리
     cleaned = cleaned.replace(/^#+\s+/gm, '');
-    
+
     // 테이블 포맷 정리
     cleaned = cleaned.replace(/\|[\s-:|]*\|/g, '\n'); // 테이블 구분선 제거
     cleaned = cleaned.replace(/\|\s*([^|]*)\s*\|/g, '$1\n'); // 테이블 셀 텍스트 추출
-    
+
     // LaTeX 스타일 문법 정리
     cleaned = cleaned.replace(/\$\\checkmark\$/g, '✓');
     cleaned = cleaned.replace(/\$(\d+)\s*\\%\$/g, '$1%');
-    
+
     // 연속된 공백 문자를 단일 공백으로 치환
     cleaned = cleaned.replace(/\s+/g, ' ');
-    
+
     // 연속된 줄바꿈을 최대 2개로 제한
     cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
-    
+
     // 불필요한 특수문자 패턴 제거
-    cleaned = cleaned.replace(/[^\S\n]+\n/g, '\n') 
-                     .replace(/\n[^\S\n]+/g, '\n');
-    
+    cleaned = cleaned.replace(/[^\S\n]+\n/g, '\n')
+      .replace(/\n[^\S\n]+/g, '\n');
+
     // 문단 시작의 불필요한 기호 제거
     cleaned = cleaned.replace(/^[\s-•*▶■●★☆◆□]+/gm, '');
-    
+
     // URL과 이메일 형식 정리
     cleaned = cleaned.replace(/(https?:\/\/[^\s]+)/g, ' $1 ');
     cleaned = cleaned.replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, ' $1 ');
-    
+
     // 중복 공백 제거
     cleaned = cleaned.replace(/\s+/g, ' ');
-    
+
     // 줄 시작과 끝의 공백 제거
     cleaned = cleaned.replace(/^\s+|\s+$/gm, '');
-    
+
     // 전체 텍스트 앞뒤 공백 제거
     return cleaned.trim();
   }

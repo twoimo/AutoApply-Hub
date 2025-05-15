@@ -48,7 +48,7 @@ export class ImageProcessor {
 
       // 이미지 데이터 검증
       if (!imageBuffer || imageBuffer.length === 0) {
-        this.logger.log(`유효하지 않은 이미지 데이터: ${imageUrl}`, 'warning');
+        this.logger.log(`유효하지 않은 이미지 데이터: ${imageUrl}`, 'debug');
         return '';
       }
 
@@ -75,7 +75,7 @@ export class ImageProcessor {
       });
       // Content-Type 체크
       if (!response.headers['content-type']?.startsWith('image/')) {
-        this.logger.log(`Content-Type이 image가 아님: ${url}`, 'warning');
+        this.logger.log(`Content-Type이 image가 아님: ${url}`, 'debug');
         return null;
       }
       // 실제 이미지인지 sharp로 검사
@@ -83,7 +83,7 @@ export class ImageProcessor {
         await sharp(response.data).metadata();
         return Buffer.from(response.data, 'binary');
       } catch {
-        this.logger.log(`sharp로 이미지 판별 실패: ${url}`, 'warning');
+        this.logger.log(`sharp로 이미지 판별 실패: ${url}`, 'debug');
         return null;
       }
     } catch (error) {

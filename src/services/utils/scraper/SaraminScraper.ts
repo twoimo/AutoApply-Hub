@@ -457,13 +457,25 @@ export class SaraminScraper {
         try {
           // OCR 호출 전 딜레이 추가
           await sleep(Math.floor(Math.random() * 3000) + 2000); // 2~5초 랜덤 대기
-          ocrContent = await this.ocrService.processImageWithOCR(fullIframeSrc);
+          const dataUrl = await this.imageProcessor.resizeImageIfNeeded(fullIframeSrc);
+          if (!dataUrl || (!dataUrl.startsWith('data:image') && !dataUrl.startsWith('https://'))) {
+            this.logger.log('유효하지 않은 iframe 이미지 데이터, OCR 시도 건너뜀', 'warning');
+            ocrContent = '';
+          } else {
+            ocrContent = await this.ocrService.processImageWithOCR(dataUrl);
+          }
         } catch (error: any) {
           if (error.statusCode === 429) {
             this.logger.log('429 오류 발생, 30초 대기 후 재시도', 'warning');
             await sleep(30000); // 30초 대기
             try {
-              ocrContent = await this.ocrService.processImageWithOCR(fullIframeSrc);
+              const dataUrl = await this.imageProcessor.resizeImageIfNeeded(fullIframeSrc);
+              if (!dataUrl || (!dataUrl.startsWith('data:image') && !dataUrl.startsWith('https://'))) {
+                this.logger.log('유효하지 않은 iframe 이미지 데이터, OCR 시도 건너뜀', 'warning');
+                ocrContent = '';
+              } else {
+                ocrContent = await this.ocrService.processImageWithOCR(dataUrl);
+              }
             } catch (e) {
               this.logger.log('OCR 2회 연속 실패, 해당 iframe 건너뜀', 'error');
               ocrContent = '';
@@ -545,15 +557,20 @@ export class SaraminScraper {
         try {
           // OCR 호출 전 딜레이 추가
           await sleep(Math.floor(Math.random() * 3000) + 2000); // 2~5초 랜덤 대기
+          const dataUrl = await this.imageProcessor.resizeImageIfNeeded(imageUrls[i]);
+          if (!dataUrl || (!dataUrl.startsWith('data:image') && !dataUrl.startsWith('https://'))) {
+            this.logger.log('유효하지 않은 이미지 데이터, OCR 시도 건너뜀', 'warning');
+            continue;
+          }
           let imageText = '';
           try {
-            imageText = await this.ocrService.processImageWithOCR(imageUrls[i]);
+            imageText = await this.ocrService.processImageWithOCR(dataUrl);
           } catch (error: any) {
             if (error.statusCode === 429) {
               this.logger.log('429 오류 발생, 30초 대기 후 재시도', 'warning');
               await sleep(30000); // 30초 대기
               try {
-                imageText = await this.ocrService.processImageWithOCR(imageUrls[i]);
+                imageText = await this.ocrService.processImageWithOCR(dataUrl);
               } catch (e) {
                 this.logger.log('OCR 2회 연속 실패, 해당 이미지 건너뜀', 'error');
                 continue;
