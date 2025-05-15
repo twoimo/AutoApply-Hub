@@ -450,12 +450,8 @@ export default class ScraperControlService extends ScraperServiceABC {
       await page.type('#password', password);
 
       // 로그인 버튼 찾기 (여러 선택자 시도)
-      const loginButton = await browserService.evaluate<string>(page, () => {
+      const loginButton = await browserService.evaluate<string>(page, (possibleSelectors) => {
         // 가능한 로그인 버튼 선택자들
-        const possibleSelectors = [
-          '.login-form button[type="submit"]'
-        ];
-
         // 각 선택자에 대해 요소가 존재하는지 확인
         for (const selector of possibleSelectors) {
           try {
@@ -484,7 +480,9 @@ export default class ScraperControlService extends ScraperServiceABC {
         }
 
         return ''; // 버튼을 찾지 못함
-      });
+      }, [
+        '.login-form button[type="submit"]'
+      ]);
 
       if (!loginButton) {
         // 버튼을 찾지 못한 경우 전체 페이지 스크린샷 캡처 (디버깅 용도)

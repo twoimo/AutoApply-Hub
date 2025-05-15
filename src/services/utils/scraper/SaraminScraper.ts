@@ -173,10 +173,10 @@ export class SaraminScraper {
    * 텍스트 추출/정제/개선 파이프라인
    */
   private async extractAndCleanText(page: Page, selector: string): Promise<string> {
-    const directContent = await this.browserService.evaluate<string>(page, () => {
-      const el = document.querySelector(selector);
+    const directContent = await this.browserService.evaluate<string>(page, (sel) => {
+      const el = document.querySelector(sel);
       return el?.textContent?.trim() || '';
-    }) || '';
+    }, selector) || '';
     const cleanedContent = this.ocrService.cleanJobDescription(directContent);
     return await this.ocrService.improveTextWithMistral(cleanedContent);
   }
