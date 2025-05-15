@@ -42,16 +42,16 @@ export class ImageProcessor {
     try {
       // URL 인코딩 처리
       const encodedUrl = this.sanitizeAndEncodeUrl(imageUrl);
-      
+
       // 이미지 데이터 가져오기
       const imageBuffer = await this.fetchImageData(encodedUrl);
-      
+
       // 이미지 데이터 검증
       if (!imageBuffer || imageBuffer.length === 0) {
-        this.logger.log(`빈 이미지 데이터: ${imageUrl}`, 'warning');
-        return this.convertToDataUrl(imageBuffer); // 빈 데이터로도 시도
+        this.logger.log(`유효하지 않은 이미지 데이터: ${imageUrl}`, 'warning');
+        return '';
       }
-      
+
       // 이미지 크기 조정
       return await this.processAndResizeImage(imageBuffer, maxWidth, maxHeight);
     } catch (error: any) {
@@ -62,25 +62,42 @@ export class ImageProcessor {
   /**
    * 이미지 데이터 가져오기
    */
-  private async fetchImageData(url: string): Promise<Buffer> {
-    const response = await axios.get(url, { 
-      responseType: 'arraybuffer',
-      timeout: 15000,
-      maxRedirects: 5,
-      httpsAgent: new (require('https').Agent)({
-        rejectUnauthorized: false
-      })
-    });
-    
-    return Buffer.from(response.data, 'binary');
+  private async fetchImageData(url: string): Promise<Buffer | null> {
+    try {
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 15000,
+        maxRedirects: 10,
+        httpsAgent: new (require('https').Agent)({
+          rejectUnauthorized: false
+        }),
+        validateStatus: status => status >= 200 && status < 400 // 3xx도 허용
+      });
+      // Content-Type 체크
+      if (!response.headers['content-type']?.startsWith('image/')) {
+        this.logger.log(`Content-Type이 image가 아님: ${url}`, 'warning');
+        return null;
+      }
+      // 실제 이미지인지 sharp로 검사
+      try {
+        await sharp(response.data).metadata();
+        return Buffer.from(response.data, 'binary');
+      } catch {
+        this.logger.log(`sharp로 이미지 판별 실패: ${url}`, 'warning');
+        return null;
+      }
+    } catch (error) {
+      this.logger.log(`이미지 다운로드 실패: ${error}`, 'warning');
+      return null;
+    }
   }
 
   /**
    * 이미지 처리 및 크기 조정
    */
   private async processAndResizeImage(
-    imageBuffer: Buffer, 
-    maxWidth: number, 
+    imageBuffer: Buffer,
+    maxWidth: number,
     maxHeight: number
   ): Promise<string> {
     try {
@@ -134,7 +151,7 @@ export class ImageProcessor {
     } else {
       this.logger.log(`이미지 처리 오류: ${error.message || error}`, 'error');
     }
-    
+
     // 최종 대안 시도
     return this.tryFallbackImageProcessing(imageUrl);
   }
@@ -145,15 +162,15 @@ export class ImageProcessor {
   public sanitizeAndEncodeUrl(url: string): string {
     try {
       const parsedUrl = new URL(url);
-      
+
       // 경로 부분만 인코딩
       const encodedPathname = parsedUrl.pathname
         .split('/')
         .map(segment => encodeURIComponent(decodeURIComponent(segment)))
         .join('/');
-      
+
       parsedUrl.pathname = encodedPathname;
-      
+
       return parsedUrl.toString();
     } catch (e) {
       // URL 파싱 실패시 기본 encodeURI 사용
@@ -191,7 +208,7 @@ export class ImageProcessor {
       timeout: 10000,
       httpsAgent: new https.Agent({ rejectUnauthorized: false })
     });
-    
+
     return this.convertToDataUrl(Buffer.from(response.data, 'binary'));
   }
 
@@ -206,7 +223,7 @@ export class ImageProcessor {
         maxRedirects: 5,
         httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false })
       });
-      
+
       const imageBuffer = Buffer.from(response.data, 'binary');
       return this.convertToDataUrl(imageBuffer);
     } catch (error) {
@@ -237,7 +254,7 @@ export class ImageProcessor {
         timeout: 10000,
         httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false })
       });
-      
+
       return this.convertToDataUrl(Buffer.from(response.data, 'binary'));
     } catch (error) {
       this.logger.log(`URL -> data URL 변환 실패: ${error}`, 'error');
@@ -250,10 +267,10 @@ export class ImageProcessor {
    */
   public async takePageScreenshot(page: any): Promise<string> {
     const screenshotPath = path.join(this.tempDir, `${uuidv4()}.png`);
-    
+
     try {
       await page.screenshot({ path: screenshotPath, fullPage: true });
-      
+
       const imageBuffer = fs.readFileSync(screenshotPath);
       return this.convertToDataUrl(imageBuffer);
     } finally {
