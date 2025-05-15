@@ -426,6 +426,8 @@ export class SaraminScraper {
    * iframe 콘텐츠 추출 처리
    */
   private async handleIframeContent(page: Page): Promise<JobDescriptionResult | null> {
+    // OCR 호출 전 딜레이 추가
+    await sleep(Math.floor(Math.random() * 3000) + 2000); // 2~5초 랜덤 대기
     const iframeSrc = await this.browserService.evaluate<string>(page, () => {
       const iframe = document.querySelector('.jv_cont.jv_detail iframe');
       return iframe?.getAttribute('src') || '';
@@ -452,9 +454,23 @@ export class SaraminScraper {
 
       // 이미지가 있으면 OCR 처리
       if (isImageContent) {
-        const result = await this.processOCR(iframePage);
-        if (result) {
-          ocrContent = result.content;
+        try {
+          // OCR 호출 전 딜레이 추가
+          await sleep(Math.floor(Math.random() * 3000) + 2000); // 2~5초 랜덤 대기
+          ocrContent = await this.ocrService.processImageWithOCR(fullIframeSrc);
+        } catch (error: any) {
+          if (error.statusCode === 429) {
+            this.logger.log('429 오류 발생, 30초 대기 후 재시도', 'warning');
+            await sleep(30000); // 30초 대기
+            try {
+              ocrContent = await this.ocrService.processImageWithOCR(fullIframeSrc);
+            } catch (e) {
+              this.logger.log('OCR 2회 연속 실패, 해당 iframe 건너뜀', 'error');
+              ocrContent = '';
+            }
+          } else {
+            throw error;
+          }
         }
       }
 
@@ -496,6 +512,8 @@ export class SaraminScraper {
    */
   private async processOCR(page: Page): Promise<JobDescriptionResult | null> {
     try {
+      // OCR 호출 전 딜레이 추가
+      await sleep(Math.floor(Math.random() * 3000) + 2000); // 2~5초 랜덤 대기
       // 이미지 URL 추출
       const imageUrls = await this.browserService.evaluate<string[]>(page, () => {
         const images = document.querySelectorAll('img[src*=".jpg"], img[src*=".jpeg"], img[src*=".png"]');
@@ -525,7 +543,25 @@ export class SaraminScraper {
       let allText = '';
       for (let i = 0; i < imageUrls.length; i++) {
         try {
-          const imageText = await this.ocrService.processImageWithOCR(imageUrls[i]);
+          // OCR 호출 전 딜레이 추가
+          await sleep(Math.floor(Math.random() * 3000) + 2000); // 2~5초 랜덤 대기
+          let imageText = '';
+          try {
+            imageText = await this.ocrService.processImageWithOCR(imageUrls[i]);
+          } catch (error: any) {
+            if (error.statusCode === 429) {
+              this.logger.log('429 오류 발생, 30초 대기 후 재시도', 'warning');
+              await sleep(30000); // 30초 대기
+              try {
+                imageText = await this.ocrService.processImageWithOCR(imageUrls[i]);
+              } catch (e) {
+                this.logger.log('OCR 2회 연속 실패, 해당 이미지 건너뜀', 'error');
+                continue;
+              }
+            } else {
+              throw error;
+            }
+          }
           if (imageText) {
             const cleanedImageText = this.ocrService.cleanJobDescription(imageText);
             allText += cleanedImageText + '\n\n';
