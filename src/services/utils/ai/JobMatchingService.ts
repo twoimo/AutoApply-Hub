@@ -48,12 +48,12 @@ export default class JobMatchingService {
     const configService = this.factory.getConfigService();
     const logger = this.factory.getLogger();
     const mistralApiKey = configService.getMistralApiKey();
-    
+
     if (!mistralApiKey) {
       logger.log('Mistral API 키가 설정되지 않았습니다.', 'error');
       return;
     }
-    
+
     this.mistralService = new MistralAIService(mistralApiKey, logger);
   }
 
@@ -101,7 +101,7 @@ export default class JobMatchingService {
       // Mistral 서비스가 초기화되지 않았으면 초기화
       if (!this.mistralService) {
         await this.initMistralService();
-        
+
         if (!this.mistralService) {
           return {
             success: false,
@@ -109,13 +109,13 @@ export default class JobMatchingService {
           };
         }
       }
-      
+
       // 구직자 프로필 포맷팅
       const candidateProfileText = formatCandidateProfile(this.candidateProfile);
-      
+
       // Mistral AI로 채용공고 매칭 실행
       const response = await this.mistralService.matchJobsWithProfile(
-        jobsData as JobInfo[], 
+        jobsData as JobInfo[],
         candidateProfileText
       );
 
@@ -187,9 +187,9 @@ export default class JobMatchingService {
   private async getUnmatchedJobs(limit: number): Promise<CompanyRecruitmentTable[]> {
     // 최적화: 필요한 필드만 선택적으로 가져오기
     return await CompanyRecruitmentTable.findAll({
-      attributes: ['id', 'company_name', 'job_title', 'company_type', 'job_location', 
-                   'job_type', 'job_salary', 'deadline', 'job_url', 
-                   'employment_type', 'job_description'],
+      attributes: ['id', 'company_name', 'job_title', 'company_type', 'job_location',
+        'job_type', 'job_salary', 'deadline', 'job_url',
+        'employment_type', 'job_description'],
       where: {
         [Op.or]: [
           { is_gpt_checked: false },
@@ -214,12 +214,12 @@ export default class JobMatchingService {
 
     // 정규식 한 번만 컴파일 (성능 향상)
     const cleanRegex = /[\[\]"\\]/g;
-    
+
     for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
       const start = batchIndex * BATCH_SIZE;
       const end = Math.min(start + BATCH_SIZE, results.length);
       const batch = results.slice(start, end);
-      
+
       // 각 배치에 대한 벌크 업데이트 준비
       const bulkUpdatePromises = batch.map(result => {
         try {
@@ -248,7 +248,7 @@ export default class JobMatchingService {
           return Promise.resolve(); // 에러가 있어도 Promise chain이 중단되지 않도록
         }
       });
-      
+
       // 배치 병렬 처리
       await Promise.all(bulkUpdatePromises);
       logger.log(`배치 ${batchIndex + 1}/${totalBatches} 처리 완료 (${batch.length}개)`, 'info');
@@ -261,9 +261,9 @@ export default class JobMatchingService {
         .filter(r => r && typeof r.score === 'number') // 유효성 검사 추가
         .sort((a, b) => b.score - a.score)
         .slice(0, 10);
-      
+
       logger.log('매칭 결과 요약 (상위 10개):', 'info', true);
-      
+
       // 결과 출력 포맷팅
       topResults.forEach(result => {
         const recommendText = result.apply_yn ? '(추천)' : '(비추천)';
@@ -280,10 +280,10 @@ export default class JobMatchingService {
   private buildPrompt(jobsData: any[]): string {
     // 구직자 프로필 포맷팅
     const profileText = formatCandidateProfile(this.candidateProfile);
-    
+
     // 채용 공고 데이터를 JSON 문자열로 변환
     const jobsJson = JSON.stringify(jobsData, null, 2);
-    
+
     return `다음 채용 공고들과 구직자 프로필을 매칭해 주세요.
 
 구직자 프로필:
@@ -303,7 +303,7 @@ ${jobsJson}
     try {
       const startIdx = text.indexOf('[');
       const endIdx = text.lastIndexOf(']');
-      
+
       if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
         return text.substring(startIdx, endIdx + 1);
       }

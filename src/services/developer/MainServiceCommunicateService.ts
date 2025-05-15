@@ -11,7 +11,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
   private readonly scraperControlService: ScraperControlService;
   private readonly factory: ScraperFactory;
   private isInitialized: boolean = false;
-  
+
   constructor() {
     super([]);
     // 싱글톤 패턴 활용하여 인스턴스 재사용
@@ -24,7 +24,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    */
   private async ensureInitialized(): Promise<void> {
     if (this.isInitialized) return;
-    
+
     await this.factory.initializeServices();
     this.isInitialized = true;
   }
@@ -34,7 +34,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @httpMethod get
    * @path /test
    */
-  public async test({}: {}): Promise<any> {
+  public async test({ }: {}): Promise<any> {
     await this.ensureInitialized();
     return await this.scraperControlService.openSaramin();
   }
@@ -44,17 +44,17 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * @httpMethod get
    * @path /run
    */
-  public async run({}: {}): Promise<any> {
+  public async run({ }: {}): Promise<any> {
     await this.ensureInitialized();
     return await this.scraperControlService.scheduleWeekdayScraping();
   }
-  
+
   /**
    * 자동 채용공고 매칭 실행 API
    * @httpMethod get
    * @path /run-auto-job-matching
    */
-  public async runAutoJobMatching({}: {}): Promise<any> {
+  public async runAutoJobMatching({ }: {}): Promise<any> {
     await this.ensureInitialized();
     return await this.scraperControlService.runAutoJobMatching();
   }
@@ -73,7 +73,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
     await this.ensureInitialized();
     return await this.factory.getRecommendedJobs(limit);
   }
-  
+
   /**
    * 전체 채용공고 조회 API
    * @httpMethod get
@@ -91,13 +91,13 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
     await this.ensureInitialized();
     return await this.factory.getAllJobs(limit, page);
   }
-  
+
   /**
    * 사람인 자동 지원 API
    * @httpMethod get
    * @path /apply-saramin-jobs
    */
-  public async applySaraminJobs({}: {}): Promise<any> {
+  public async applySaraminJobs({ }: {}): Promise<any> {
     await this.ensureInitialized();
     return await this.scraperControlService.applySaraminJobs();
   }

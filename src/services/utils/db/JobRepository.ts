@@ -9,7 +9,7 @@ import { JobMatchResult } from "../ai/JobMatchingService";
  */
 export class JobRepository {
   private logger: LoggerService;
-  
+
   constructor(logger: LoggerService) {
     this.logger = logger;
   }
@@ -46,7 +46,7 @@ export class JobRepository {
    */
   public async checkExistingUrls(urls: string[]): Promise<string[]> {
     if (urls.length === 0) return [];
-    
+
     try {
       const existingRecords = await CompanyRecruitmentTable.findAll({
         attributes: ['job_url'],
@@ -57,7 +57,7 @@ export class JobRepository {
         },
         raw: true
       });
-      
+
       return existingRecords.map(record => record.job_url);
     } catch (error) {
       this.logger.log(`기존 URL 확인 중 오류: ${error}`, 'error');
@@ -77,26 +77,26 @@ export class JobRepository {
     const companyCounts: Record<string, number> = {};
     const jobTypeCounts: Record<string, number> = {};
     const employmentTypeCounts: Record<string, number> = {};
-    
+
     jobs.forEach(job => {
       // 회사 카운트
       const company = job.companyName;
       companyCounts[company] = (companyCounts[company] || 0) + 1;
-      
+
       // 직무 유형 카운트
       const jobType = job.jobType || '명시되지 않음';
       jobTypeCounts[jobType] = (jobTypeCounts[jobType] || 0) + 1;
-      
+
       // 고용 형태 카운트
       const empType = job.employmentType || '명시되지 않음';
       employmentTypeCounts[empType] = (employmentTypeCounts[empType] || 0) + 1;
     });
-    
+
     // 상위 회사 목록
     const topCompanies = Object.entries(companyCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
-    
+
     return {
       companyCounts,
       jobTypeCounts,
@@ -104,7 +104,33 @@ export class JobRepository {
       topCompanies
     };
   }
-  
+
+  /**
+   * DB raw 객체를 JobInfo로 변환하는 헬퍼
+   */
+  private toJobInfo(job: any): JobInfo {
+    return {
+      id: Number(job.id),
+      score: Number(job.match_score ?? 0),
+      reason: job.match_reason ?? '',
+      strength: job.strength ?? '',
+      weakness: job.weakness ?? '',
+      apply_yn: job.is_recommended ?? false,
+      companyName: job.company_name,
+      jobTitle: job.job_title,
+      jobLocation: job.job_location || '',
+      jobType: job.job_type || '',
+      jobSalary: job.job_salary || '',
+      deadline: job.deadline || '',
+      employmentType: job.employment_type || '',
+      url: job.job_url || '',
+      companyType: job.company_type || '',
+      jobDescription: job.job_description || '',
+      descriptionType: 'text',
+      scrapedAt: job.scraped_at ? job.scraped_at.toISOString() : new Date().toISOString()
+    };
+  }
+
   /**
    * 최근 채용 공고 가져오기
    */
@@ -115,35 +141,18 @@ export class JobRepository {
         limit,
         raw: true
       });
-      
-      // DB 모델을 JobInfo 형식으로 변환 (모든 필수 필드 포함)
-      return jobs.map(job => ({
-        id: job.id,
-        companyName: job.company_name,
-        jobTitle: job.job_title,
-        jobLocation: job.job_location || '',
-        jobType: job.job_type || '',
-        jobSalary: job.job_salary || '',
-        deadline: job.deadline || '',
-        employmentType: job.employment_type || '',
-        url: job.job_url || '',
-        companyType: job.company_type || '',
-        jobDescription: job.job_description || '',
-        // description_type 필드 제거하고 기본값 사용
-        descriptionType: 'text',
-        scrapedAt: job.scraped_at ? job.scraped_at.toISOString() : new Date().toISOString()
-      }));
+      return jobs.map(this.toJobInfo);
     } catch (error) {
       this.logger.log(`최근 채용 공고 조회 실패: ${error}`, 'error');
       return [];
     }
   }
-  
+
   /**
    * 매칭 결과로 채용 공고 업데이트
    */
   public async updateJobWithMatchResult(
-    jobId: number, 
+    jobId: number,
     matchScore: number,
     matchReason: string,
     isRecommended: boolean,
@@ -152,23 +161,23 @@ export class JobRepository {
   ): Promise<boolean> {
     try {
       const job = await CompanyRecruitmentTable.findByPk(jobId);
-      
+
       if (!job) {
         this.logger.log(`ID ${jobId}에 해당하는 채용 공고를 찾을 수 없습니다`, 'warning');
         return false;
       }
-      
+
       // 매칭 결과 데이터 업데이트
       job.match_score = matchScore;
       job.match_reason = matchReason;
       job.is_recommended = isRecommended;
       job.is_gpt_checked = true;
-      
+
       if (strength) job.strength = strength;
       if (weakness) job.weakness = weakness;
-      
+
       await job.save();
-      
+
       this.logger.logVerbose(`채용 공고 매칭 결과 업데이트 완료 (ID: ${jobId}, 점수: ${matchScore})`);
       return true;
     } catch (error) {
@@ -176,7 +185,7 @@ export class JobRepository {
       return false;
     }
   }
-  
+
   /**
    * 추천 채용 공고 가져오기
    */
@@ -191,29 +200,16 @@ export class JobRepository {
         limit,
         raw: true
       });
-      
       this.logger.log(`${jobs.length}개의 추천 채용 공고를 조회했습니다.`, 'info');
       if (jobs.length === 0) {
         this.logger.log('추천 채용 공고가 없습니다.', 'warning');
       }
-      
       return jobs.map(job => ({
-        id: job.id,
-        score: job.match_score,
+        ...this.toJobInfo(job),
         reason: job.match_reason || '',
         strength: job.strength || '',
         weakness: job.weakness || '',
-        apply_yn: job.is_recommended,
-        // 추가 정보
-        companyName: job.company_name,
-        jobTitle: job.job_title,
-        jobLocation: job.job_location || '',
-        companyType: job.company_type || '',
-        url: job.job_url || '',
-        deadline: job.deadline || '', // 추가: 마감일 정보 포함
-        jobSalary: job.job_salary || '', // 추가: 급여 정보 포함
-        jobType: job.job_type || '', // 추가: 직무 유형 포함
-        employmentType: job.employment_type || '' // 추가: 고용 형태 포함
+        apply_yn: false
       }));
     } catch (error) {
       this.logger.log(`추천 채용 공고 조회 실패: ${error}`, 'error');
@@ -230,7 +226,7 @@ export class JobRepository {
   public async getAllJobs(limit: number = 100, page: number = 1): Promise<any[]> {
     try {
       const offset = (page - 1) * limit;
-      
+
       // 페이지네이션 적용하여 전체 채용공고 조회 - 모든 컬럼 반환
       const jobs = await CompanyRecruitmentTable.findAll({
         order: [['scraped_at', 'DESC']],
@@ -238,20 +234,20 @@ export class JobRepository {
         offset,
         raw: true
       });
-      
+
       // 추천 채용공고 API와 유사한 로그 출력 추가
       this.logger.log(`${jobs.length}개의 전체 채용 공고를 조회했습니다. (페이지: ${page})`, 'info');
       if (jobs.length === 0) {
         this.logger.log(`페이지 ${page}에 채용 공고가 없습니다.`, 'warning');
       }
-      
+
       this.logger.logVerbose(`전체 채용 공고 ${page} 페이지 (${jobs.length}개) 조회 완료`);
-      
+
       // 테이블의 모든 컬럼을 그대로 반환하면서 클라이언트에 친숙한 필드명 추가
       return jobs.map(job => ({
         // 원본 DB 컬럼 유지
         ...job,
-        
+
         // 클라이언트 친화적인 필드명 추가 (기존 호환성 유지)
         id: job.id,
         companyName: job.company_name,
@@ -303,15 +299,16 @@ export class JobRepository {
         limit,
         raw: true
       });
-      
+
       this.logger.logVerbose(`${jobs.length}개의 매칭되지 않은 채용 공고를 조회했습니다.`);
-      
+
       // DB 모델을 JobInfo 형식으로 변환
       return jobs.map(job => ({
         id: job.id,
         companyName: job.company_name,
         jobTitle: job.job_title,
         jobLocation: job.job_location || '',
+        score: 0, // Add default score field to match JobInfo interface
         jobType: job.job_type || '',
         jobSalary: job.job_salary || '',
         deadline: job.deadline || '',
@@ -335,7 +332,7 @@ export class JobRepository {
    */
   public async updateMatchedStatus(jobIds: number[]): Promise<boolean> {
     if (!jobIds.length) return true;
-    
+
     try {
       await CompanyRecruitmentTable.update(
         { is_gpt_checked: true },
@@ -347,7 +344,7 @@ export class JobRepository {
           }
         }
       );
-      
+
       this.logger.logVerbose(`${jobIds.length}개 채용 공고의 매칭 상태가 업데이트되었습니다.`);
       return true;
     } catch (error) {
@@ -372,7 +369,7 @@ export class JobRepository {
           }
         }
       });
-      
+
       this.logger.logVerbose(`매칭되지 않은 총 채용 공고 수: ${result}개`);
       return result;
     } catch (error) {

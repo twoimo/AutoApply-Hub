@@ -42,43 +42,43 @@ export class SaraminScraper {
    * 채용 목록 페이지 처리
    */
   public async processListPage(
-    page: Page, 
-    pageNum: number, 
+    page: Page,
+    pageNum: number,
     waitTime: number
   ): Promise<PageProcessResult> {
     const pageJobs: JobInfo[] = [];
     let shouldContinue = true;
-    
+
     try {
       const pageUrl = this.buildPageUrl(pageNum);
-      
+
       // 페이지 로드
       const loadSuccess = await this.browserService.loadPageWithRetry(page, pageUrl, {
         waitForSelector: ".box_item",
         waitTime
       });
-      
+
       if (!loadSuccess) {
         return { jobs: [], shouldContinue: false };
       }
-  
+
       // 채용 공고 링크 추출
       const links = await this.extractJobLinks(page);
       this.logger.logVerbose(`페이지 ${pageNum}: ${links.length}개 채용 공고 발견`);
-      
+
       // 링크가 없으면 즉시 반환
       if (links.length === 0) {
         this.logger.log(`페이지 ${pageNum}에서 채용 공고를 찾을 수 없습니다.`, 'warning');
         return { jobs: [], shouldContinue: false };
       }
-      
+
       // 각 채용 공고 URL 생성
       const urlsToCheck = links.map(link => `https://www.saramin.co.kr${link}`);
-      
+
       // 기존 URL 중복 확인
       const existingUrls = await this.jobRepository.checkExistingUrls(urlsToCheck);
       this.logger.logVerbose(`${existingUrls.length}개 중복 채용 공고 발견`);
-      
+
       // 중복 체크
       const duplicatesInThisPage = existingUrls.length;
       if (duplicatesInThisPage >= 5 && duplicatesInThisPage === links.length) {
@@ -86,19 +86,19 @@ export class SaraminScraper {
         shouldContinue = true; // 다음 페이지 계속 진행
         return { jobs: pageJobs, shouldContinue };
       }
-      
+
       // 새 URL 필터링 및 처리
       const newUrls = urlsToCheck.filter(url => !existingUrls.includes(url));
-      
+
       if (newUrls.length > 0) {
         for (let i = 0; i < newUrls.length; i++) {
           try {
             const fullUrl = newUrls[i];
-            this.logger.log(`처리 중: ${i+1}/${newUrls.length} - ${fullUrl}`, 'info');
-            
+            this.logger.log(`처리 중: ${i + 1}/${newUrls.length} - ${fullUrl}`, 'info');
+
             const randomWaitTime = Math.floor(Math.random() * 2001) + 4000;
             const jobInfo = await this.extractJobDetails(page, fullUrl, randomWaitTime);
-            
+
             if (jobInfo) {
               jobInfo.url = fullUrl;
               pageJobs.push(jobInfo);
@@ -112,11 +112,11 @@ export class SaraminScraper {
       } else {
         this.logger.log(`새로운 채용 공고 없음`, 'info');
       }
-      
+
     } catch (error) {
       this.logger.log(`페이지 ${pageNum} 처리 중 오류: ${error}`, 'error');
     }
-    
+
     return { jobs: pageJobs, shouldContinue };
   }
 
@@ -140,8 +140,45 @@ export class SaraminScraper {
 
       return linkList;
     });
-    
+
     return links || [];
+  }
+
+  /**
+   * 페이지 로드 및 retry 헬퍼
+   */
+  private async withPageLoadRetry(page: Page, url: string, waitForSelector: string, waitTime: number, maxRetries = 2): Promise<boolean> {
+    let retryCount = 0;
+    while (retryCount <= maxRetries) {
+      try {
+        const loadSuccess = await this.browserService.loadPageWithRetry(page, url, { waitForSelector, waitTime });
+        if (!loadSuccess) throw new Error('페이지 로드 실패');
+        return true;
+      } catch (error) {
+        retryCount++;
+        this.logger.log(`${url} 처리 실패 (${retryCount}/${maxRetries}): ${error}`, 'warning');
+        if (retryCount <= maxRetries) {
+          this.logger.log(`3초 후 재시도...`, 'info');
+          await sleep(3000);
+        } else {
+          this.logger.log(`최대 재시도 횟수 초과`, 'error');
+          return false;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 텍스트 추출/정제/개선 파이프라인
+   */
+  private async extractAndCleanText(page: Page, selector: string): Promise<string> {
+    const directContent = await this.browserService.evaluate<string>(page, () => {
+      const el = document.querySelector(selector);
+      return el?.textContent?.trim() || '';
+    }) || '';
+    const cleanedContent = this.ocrService.cleanJobDescription(directContent);
+    return await this.ocrService.improveTextWithMistral(cleanedContent);
   }
 
   /**
@@ -150,24 +187,17 @@ export class SaraminScraper {
   public async extractJobDetails(page: Page, url: string, waitTime: number): Promise<JobInfo | null> {
     const maxRetries = 2;
     let retryCount = 0;
-    
     while (retryCount <= maxRetries) {
       try {
-        // 상세 페이지 로드
-        const loadSuccess = await this.browserService.loadPageWithRetry(page, url, {
-          waitForSelector: "section[class^='jview jview-0-']",
-          waitTime
-        });
-        
-        if (!loadSuccess) {
-          throw new Error("페이지 로드 실패");
-        }
-        
+        // 상세 페이지 로드 (헬퍼 사용)
+        const loaded = await this.withPageLoadRetry(page, url, "section[class^='jview jview-0-']", waitTime, maxRetries);
+        if (!loaded) throw new Error("페이지 로드 실패");
+
         // 기본 채용 정보 추출
         const jobInfo = await this.browserService.evaluate<JobInfo | null>(page, () => {
           const jviewSectionSelector = "section[class^='jview jview-0-']";
           const jviewSection = document.querySelector(jviewSectionSelector);
-          
+
           if (!jviewSection) return null;
 
           const getTextContent = (selector: string): string => {
@@ -177,28 +207,28 @@ export class SaraminScraper {
 
           const extractDeadline = (): string => {
             const allElements = Array.from(jviewSection.querySelectorAll("*"));
-            
+
             for (const el of allElements) {
               const text = el.textContent || "";
               // 마감일 또는 종료일만 검색하여 시작일을 배제
-              if (text.includes("마감일") || text.includes("마감기한") || 
-                  text.includes("접수마감") || text.includes("종료일") ||
-                  text.includes("~") && !text.includes("시작")) {
-                
+              if (text.includes("마감일") || text.includes("마감기한") ||
+                text.includes("접수마감") || text.includes("종료일") ||
+                text.includes("~") && !text.includes("시작")) {
+
                 // 정규식 패턴 개선 - 날짜 형식을 더 정확히 매칭
                 const datePattern = /\d{4}[-./]\d{1,2}[-./]\d{1,2}/g;
                 const timePattern = /\d{1,2}:\d{2}/g;
-                
+
                 const dateMatches = text.match(datePattern);
-                
+
                 // 날짜 범위가 있는 경우(시작일~마감일) 마지막 날짜만 추출
                 if (dateMatches && dateMatches.length > 1 && text.includes("~")) {
                   const timeMatches = text.match(timePattern);
                   // 마감 시간이 있으면 포함
                   if (timeMatches && timeMatches.length > 0) {
-                    return `${dateMatches[dateMatches.length-1]} ${timeMatches[timeMatches.length-1]}`;
+                    return `${dateMatches[dateMatches.length - 1]} ${timeMatches[timeMatches.length - 1]}`;
                   }
-                  return dateMatches[dateMatches.length-1]; // 마지막 날짜(마감일)
+                  return dateMatches[dateMatches.length - 1]; // 마지막 날짜(마감일)
                 }
                 // 단일 날짜만 있는 경우, 마감일 관련 텍스트에 포함된 날짜 사용
                 else if (dateMatches && dateMatches.length > 0) {
@@ -210,7 +240,7 @@ export class SaraminScraper {
                 }
               }
             }
-            
+
             // 마감일을 찾지 못한 경우 빈 문자열 반환
             return "";
           };
@@ -218,20 +248,20 @@ export class SaraminScraper {
           const extractInfoFromColumns = (): Record<string, string> => {
             const result: Record<string, string> = {};
             const dlElements = jviewSection.querySelectorAll("dl");
-            
+
             dlElements.forEach((dl) => {
               const title = dl.querySelector("dt")?.textContent?.trim() || "";
               const value = dl.querySelector("dd")?.textContent?.trim() || "";
               if (title && value) result[title] = value;
             });
-            
+
             return result;
           };
-          
+
           const extractCompanyType = (): string => {
             const companyInfoArea = jviewSection.querySelector(".info_area");
             if (!companyInfoArea) return "";
-            
+
             const dlElements = companyInfoArea.querySelectorAll("dl");
             for (const dl of Array.from(dlElements)) {
               const dt = dl.querySelector("dt");
@@ -248,15 +278,15 @@ export class SaraminScraper {
             }
             return "";
           };
-          
+
           const columnInfo = extractInfoFromColumns();
-          
+
           const companyName = getTextContent(".title_inner .company") || getTextContent(".company_name") || getTextContent(".corp_name");
           const jobTitle = getTextContent(".job_tit") || getTextContent("h1.tit_job");
           const jobLocation = columnInfo["근무지역"]?.replace(/지도/g, "").trim() || "";
-          
+
           let deadline = "";
-          
+
           // 명시적인 마감일 요소 먼저 확인
           const infoDeadline = jviewSection.querySelector(".info_period");
           if (infoDeadline) {
@@ -268,7 +298,7 @@ export class SaraminScraper {
               }
             }
           }
-          
+
           // 기존 방식으로도 마감일을 찾지 못했을 때 개선된 함수 사용
           if (!deadline) {
             deadline = extractDeadline();
@@ -280,7 +310,7 @@ export class SaraminScraper {
             const datePattern = /\d{4}[-./]\d{1,2}[-./]\d{1,2}/g;
             const dates = deadline.match(datePattern);
             if (dates && dates.length > 1) {
-              deadline = dates[dates.length-1]; // 마지막 날짜 사용(마감일)
+              deadline = dates[dates.length - 1]; // 마지막 날짜 사용(마감일)
             } else {
               deadline = ""; // 명확하지 않은 경우 빈 문자열
             }
@@ -292,7 +322,7 @@ export class SaraminScraper {
               .split("상세보기")[0]
               .split("최저임금")[0]
               .trim();
-            
+
             const hourPattern = /\(주 \d+시간\)/;
             const match = jobSalary.match(hourPattern);
             if (match) {
@@ -300,10 +330,10 @@ export class SaraminScraper {
               jobSalary = jobSalary.substring(0, index).trim();
             }
           }
-          
+
           const employmentType = columnInfo["근무형태"] || columnInfo["고용형태"] || "";
           const companyType = extractCompanyType();
-          
+
           return {
             companyName,
             jobTitle,
@@ -322,15 +352,9 @@ export class SaraminScraper {
           throw new Error("채용 정보 추출 실패");
         }
 
-        // 상세 설명 추출
-        const jobDescriptionResult = await this.extractJobDescription(page);
-        
-        if (jobDescriptionResult) {
-          jobInfo.jobDescription = jobDescriptionResult.content;
-          jobInfo.descriptionType = jobDescriptionResult.type;
-        } else {
-          this.logger.log(`채용 상세 설명을 찾을 수 없음`, 'warning');
-        }
+        // 상세 설명 추출 (헬퍼 사용)
+        jobInfo.jobDescription = await this.extractAndCleanText(page, '.jv_cont.jv_detail');
+        jobInfo.descriptionType = 'text';
 
         return jobInfo;
 
@@ -338,7 +362,7 @@ export class SaraminScraper {
         retryCount++;
         const isTimeout = error instanceof Error && error.name === 'TimeoutError';
         this.logger.log(`${url} 처리 실패 (${retryCount}/${maxRetries}): ${isTimeout ? '타임아웃 발생' : error}`, 'warning');
-        
+
         if (retryCount <= maxRetries) {
           this.logger.log(`3초 후 재시도...`, 'info');
           await sleep(3000);
@@ -348,7 +372,7 @@ export class SaraminScraper {
         }
       }
     }
-    
+
     return null;
   }
 
@@ -375,22 +399,10 @@ export class SaraminScraper {
       if (hasIframe) {
         return await this.handleIframeContent(page);
       }
-      
-      // 직접 텍스트 추출
-      const directContent = await this.browserService.evaluate<string>(page, () => {
-        const detailSection = document.querySelector('.jv_cont.jv_detail');
-        return detailSection?.textContent?.trim() || '';
-      }) || '';
-      
-      // 추출된 직무 설명 텍스트 정리
-      const cleanedContent = this.ocrService.cleanJobDescription(directContent);
-      // 텍스트 개선
-      const improvedContent = await this.ocrService.improveTextWithMistral(cleanedContent);
-      
-      return {
-        content: improvedContent,
-        type: 'text'
-      };
+
+      // 헬퍼 사용
+      const improvedContent = await this.extractAndCleanText(page, '.jv_cont.jv_detail');
+      return { content: improvedContent, type: 'text' };
     } catch (error) {
       this.logger.log('채용 상세 설명 추출 중 오류: ' + error, 'error');
       return null;
@@ -405,26 +417,26 @@ export class SaraminScraper {
       const iframe = document.querySelector('.jv_cont.jv_detail iframe');
       return iframe?.getAttribute('src') || '';
     }) || '';
-    
+
     if (!iframeSrc) return null;
-    
-    const fullIframeSrc = iframeSrc.startsWith('http') ? 
+
+    const fullIframeSrc = iframeSrc.startsWith('http') ?
       iframeSrc : `https://www.saramin.co.kr${iframeSrc}`;
-    
+
     const iframePage = await page.browser().newPage();
-    
+
     try {
       await this.browserService.loadPageWithRetry(iframePage, fullIframeSrc, {
         waitTime: 2000
       });
-      
+
       const isImageContent = await this.browserService.evaluate<boolean>(iframePage, () => {
         const imageElements = document.querySelectorAll('img[src*=".jpg"], img[src*=".jpeg"], img[src*=".png"]');
         return imageElements.length > 0;
       }) || false;
-      
+
       let ocrContent = '';
-      
+
       // 이미지가 있으면 OCR 처리
       if (isImageContent) {
         const result = await this.processOCR(iframePage);
@@ -438,7 +450,7 @@ export class SaraminScraper {
         const contentElement = document.querySelector('body');
         return contentElement?.innerText || '';
       }) || '';
-      
+
       // 추출된 텍스트 정리
       const cleanedTextContent = this.ocrService.cleanJobDescription(textContent);
 
@@ -453,7 +465,7 @@ export class SaraminScraper {
 
       // 최종 텍스트 개선
       const improvedFinalContent = await this.ocrService.improveTextWithMistral(finalContent);
-      
+
       return {
         content: improvedFinalContent,
         type: contentType
@@ -495,7 +507,7 @@ export class SaraminScraper {
         this.logger.log('OCR 처리를 위한 이미지를 찾을 수 없음', 'warning');
         return await this.processPageScreenshot(page);
       }
-      
+
       // 각 이미지 처리
       let allText = '';
       for (let i = 0; i < imageUrls.length; i++) {
@@ -527,7 +539,7 @@ export class SaraminScraper {
     try {
       const dataUrl = await this.imageProcessor.takePageScreenshot(page);
       const ocrResult = await this.ocrService.processImageWithOCR(dataUrl);
-      
+
       return {
         content: ocrResult,
         type: 'ocr'
@@ -550,26 +562,26 @@ export class SaraminScraper {
     let newEmptyCounts = pageJobs.length === 0 ? emptyCounts + 1 : 0;
     if (newEmptyCounts > 0) {
       this.logger.log(`연속 ${newEmptyCounts}페이지에서 채용 공고를 찾지 못했습니다.`, 'warning');
-      
+
       if (newEmptyCounts >= 5) {
         this.logger.log(`연속 ${newEmptyCounts}페이지에서 데이터가 없어 스크래핑을 종료합니다.`, 'warning');
-        return { 
-          emptyCounts: newEmptyCounts, 
-          duplicateCounts, 
-          shouldContinue: false 
+        return {
+          emptyCounts: newEmptyCounts,
+          duplicateCounts,
+          shouldContinue: false
         };
       }
     }
-    
+
     // 중복 페이지 처리 (빈 페이지가 아닌 경우에만)
     let newDuplicateCounts = duplicateCounts;
     if (pageJobs.length > 0) {
       const allExisting = await this.jobRepository.checkExistingUrls(pageJobs.map(job => job.url || ''));
-      
+
       if (allExisting.length === pageJobs.length) {
         newDuplicateCounts++;
         this.logger.log(`연속 ${newDuplicateCounts}페이지에서 모든 채용 공고가 중복되었습니다.`, 'warning');
-        
+
         if (newDuplicateCounts >= 5) {
           this.logger.log(`연속 ${newDuplicateCounts}페이지 모두 중복으로 스크래핑을 종료합니다.`, 'warning');
           return {
@@ -582,11 +594,11 @@ export class SaraminScraper {
         newDuplicateCounts = 0;
       }
     }
-    
-    return { 
-      emptyCounts: newEmptyCounts, 
-      duplicateCounts: newDuplicateCounts, 
-      shouldContinue: true 
+
+    return {
+      emptyCounts: newEmptyCounts,
+      duplicateCounts: newDuplicateCounts,
+      shouldContinue: true
     };
   }
 }

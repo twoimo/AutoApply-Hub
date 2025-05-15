@@ -13,12 +13,19 @@ export interface JobInfo {
   companyType?: string;
   jobDescription?: string;
   descriptionType?: string;
-  
+
   // 추가 ID 필드
-  id?: number;
-  
+  id: number;
+
   // 스크랩 시점
   scrapedAt?: string;
+
+  // 매칭 결과 필드 (JobMatchResult 호환)
+  score: number;
+  reason?: string;
+  strength?: string;
+  weakness?: string;
+  apply_yn?: boolean;
 }
 
 /**

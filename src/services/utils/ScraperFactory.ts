@@ -19,7 +19,7 @@ dotenv.config();
 export class ScraperFactory {
   private static instance: ScraperFactory;
   private readonly tempDir: string;
-  
+
   // 서비스 인스턴스 - readonly로 불변성 보장
   private readonly logger: LoggerService;
   private readonly imageProcessor: ImageProcessor;
@@ -29,7 +29,7 @@ export class ScraperFactory {
   private readonly saraminScraper: SaraminScraper;
   private readonly configService: ConfigService;
   private matchingService: JobMatchingService | null = null;
-  
+
   // 초기화 상태 추적
   private isInitializing: boolean = false;
   private initializePromise: Promise<void> | null = null;
@@ -37,17 +37,17 @@ export class ScraperFactory {
   private constructor() {
     // 임시 디렉토리 경로 설정
     this.tempDir = path.join(process.cwd(), 'temp');
-    
+
     // 로깅 서비스 초기화
     this.logger = new LoggerService(true);
-    
+
     // 각 서비스 초기화 - 생성자에서는 동기 초기화만 수행
     this.imageProcessor = new ImageProcessor(this.tempDir, this.logger);
     this.ocrService = new OcrService(process.env.MISTRAL_API_KEY, this.logger, this.imageProcessor);
     this.browserService = new BrowserService(this.logger);
     this.jobRepository = new JobRepository(this.logger);
     this.configService = new ConfigService();
-    
+
     // 스크래퍼 초기화
     this.saraminScraper = new SaraminScraper(
       this.logger,
@@ -76,10 +76,10 @@ export class ScraperFactory {
     if (this.isInitializing && this.initializePromise) {
       return this.initializePromise;
     }
-    
+
     // 초기화 중으로 상태 변경
     this.isInitializing = true;
-    
+
     // 초기화 프로미스 생성 및 저장
     this.initializePromise = (async () => {
       try {
@@ -94,7 +94,7 @@ export class ScraperFactory {
         this.isInitializing = false;
       }
     })();
-    
+
     return this.initializePromise;
   }
 
@@ -107,7 +107,7 @@ export class ScraperFactory {
       if (this.matchingService) {
         return;
       }
-      
+
       // 매칭 서비스 초기화
       this.matchingService = new JobMatchingService();
       this.logger.log('채용공고 매칭 서비스 초기화 완료', 'success');
@@ -131,7 +131,7 @@ export class ScraperFactory {
     // 매칭 서비스가 없으면 초기화 시도
     if (!this.matchingService) {
       await this.initializeMatchingService();
-      
+
       // 초기화 후에도 없으면 오류 반환
       if (!this.matchingService) {
         return {
@@ -140,7 +140,7 @@ export class ScraperFactory {
         };
       }
     }
-    
+
     // 매개변수 직접 전달로 성능 향상
     return await this.matchingService.matchJobs({ limit, matchLimit });
   }
@@ -168,7 +168,7 @@ export class ScraperFactory {
       // JobRepository에서 전체 채용공고 조회
       return Promise.resolve().then(async () => {
         this.logger.log(`전체 채용공고 조회 요청 (페이지: ${page}, 항목 수: ${limit})`, 'info');
-        
+
         const jobs = await this.jobRepository.getAllJobs(limit, page);
         const result = {
           success: true,
@@ -177,7 +177,7 @@ export class ScraperFactory {
           limit: limit,
           total: jobs.length
         };
-        
+
         this.logger.log(`전체 채용공고 ${jobs.length}개 조회 결과 반환 완료`, 'success');
         return result;
       });
