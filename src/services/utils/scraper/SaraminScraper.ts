@@ -353,8 +353,21 @@ export class SaraminScraper {
         }
 
         // 상세 설명 추출 (헬퍼 사용)
-        jobInfo.jobDescription = await this.extractAndCleanText(page, '.jv_cont.jv_detail');
-        jobInfo.descriptionType = 'text';
+        let jobDescription = await this.extractAndCleanText(page, '.jv_cont.jv_detail');
+
+        // 텍스트가 너무 짧거나 비어 있으면 OCR 시도
+        if (!jobDescription || jobDescription.length < 30) {
+          // iframe 기반 OCR 우선 시도, 없으면 일반 OCR
+          const ocrResult = await this.handleIframeContent(page) || await this.processOCR(page);
+          if (ocrResult && ocrResult.content) {
+            // OCR 결과와 기존 텍스트를 합쳐서 정제
+            jobDescription = [jobDescription, ocrResult.content].filter(Boolean).join('\n').trim();
+            jobDescription = await this.ocrService.improveTextWithMistral(jobDescription);
+          }
+        }
+
+        jobInfo.jobDescription = jobDescription;
+        jobInfo.descriptionType = 'text+ocr';
 
         return jobInfo;
 
