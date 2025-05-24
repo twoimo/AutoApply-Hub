@@ -63,7 +63,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * 추천 채용공고 조회 API
    * @httpMethod get
    * @path /recommended-jobs
-   * @objectParams {number} limit - 반환할 추천 채용공고 수 (기본값: 5000)
+   * @objectParams {number} limit - 반환할 추천 채용공고 수 (기본값: 50000)
    */
   public async getRecommendedJobs({
     limit = JobMatchingConstants.DEFAULT_MATCH_LIMIT
@@ -78,7 +78,7 @@ export default class MainServiceCommunicateService extends MicroServiceABC {
    * 전체 채용공고 조회 API
    * @httpMethod get
    * @path /all-jobs
-   * @objectParams {number} limit - 반환할 채용공고 수 (기본값: 5000)
+   * @objectParams {number} limit - 반환할 채용공고 수 (기본값: 50000)
    * @objectParams {number} page - 페이지 번호 (기본값: 1)
    */
   public async getAllJobs({

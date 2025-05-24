@@ -60,5 +60,5 @@ export const LoggingConstants = {
  */
 export const JobMatchingConstants = {
   // 기본 매칭 결과 개수
-  DEFAULT_MATCH_LIMIT: 5000
+  DEFAULT_MATCH_LIMIT: 50000
 };
