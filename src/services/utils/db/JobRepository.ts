@@ -191,15 +191,18 @@ export class JobRepository {
    */
   public async getRecommendedJobs(limit: number = 5): Promise<JobMatchResult[]> {
     try {
-      const jobs = await CompanyRecruitmentTable.findAll({
+      const query: any = {
         where: {
           is_gpt_checked: true,
           is_recommended: true
         },
         order: [['match_score', 'DESC']],
-        limit,
         raw: true
-      });
+      };
+      if (limit > 0) {
+        query.limit = limit;
+      }
+      const jobs = await CompanyRecruitmentTable.findAll(query);
       this.logger.log(`${jobs.length}개의 추천 채용 공고를 조회했습니다.`, 'info');
       if (jobs.length === 0) {
         this.logger.log('추천 채용 공고가 없습니다.', 'warning');
@@ -226,14 +229,36 @@ export class JobRepository {
   public async getAllJobs(limit: number = 100, page: number = 1): Promise<any[]> {
     try {
       const offset = (page - 1) * limit;
+      // 오늘 날짜 (YYYY-MM-DD)
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      const todayStr = `${yyyy}-${mm}-${dd}`;
 
-      // 페이지네이션 적용하여 전체 채용공고 조회 - 모든 컬럼 반환
-      const jobs = await CompanyRecruitmentTable.findAll({
+      // 마감일이 오늘 이후이거나, 마감일이 비어있는 경우만 조회
+      const where = {
+        [sequelize.Op.or]: [
+          { deadline: null },
+          { deadline: '' },
+          sequelize.where(
+            sequelize.fn('STR_TO_DATE', sequelize.col('deadline'), '%Y.%m.%d'), '>=', todayStr
+          ),
+          sequelize.where(
+            sequelize.fn('STR_TO_DATE', sequelize.col('deadline'), '%Y-%m-%d'), '>=', todayStr
+          )
+        ]
+      };
+      const query: any = {
+        where,
         order: [['scraped_at', 'DESC']],
-        limit,
-        offset,
         raw: true
-      });
+      };
+      if (limit > 0) {
+        query.limit = limit;
+        query.offset = offset;
+      }
+      const jobs = await CompanyRecruitmentTable.findAll(query);
 
       // 추천 채용공고 API와 유사한 로그 출력 추가
       this.logger.log(`${jobs.length}개의 전체 채용 공고를 조회했습니다. (페이지: ${page})`, 'info');
